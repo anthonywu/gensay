@@ -1,3 +1,7 @@
+A replacement for the macOS `say` command, with plans for multiple backends.
+
+This project is a stub and a placeholder under heavy development, and is not intended for usage yet. Stay tuned.
+
 # gensay
 
 [![PyPI - Version](https://img.shields.io/pypi/v/gensay.svg)](https://pypi.org/project/gensay)
@@ -12,9 +16,17 @@
 
 ## Installation
 
+It's 2025, use [uv](https://github.com/astral-sh/uv)
+
+`gensay` is intended to be used as a CLI tool that is a drop-in replacement to the macOS `say` CLI.
+
 ```console
-pip install gensay
+uv pip tool install gensay
 ```
+
+Wherever you used `say` in your prior projects, just globally replace the command mention with `gensay`.
+
+You can also use it from your Python apps by `uv add gensay` to your project.
 
 ## License
 
