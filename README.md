@@ -1,17 +1,34 @@
-A replacement for the macOS `say` command, with plans for multiple backends.
-
-This project is a stub and a placeholder under heavy development, and is not intended for usage yet. Stay tuned.
-
 # gensay
 
 [![PyPI - Version](https://img.shields.io/pypi/v/gensay.svg)](https://pypi.org/project/gensay)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/gensay.svg)](https://pypi.org/project/gensay)
 
------
+A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr/bin/say` command interface while supporting multiple TTS backends including Chatterbox (local AI), OpenAI, ElevenLabs, and Amazon Polly.
+
+## Features
+
+- **macOS `say` Compatible**: Drop-in replacement for the macOS `say` command with identical CLI interface
+- **Multiple TTS Providers**: Extensible provider system with support for:
+  - macOS native `say` command (default on macOS)
+  - Chatterbox (local AI TTS, default on other platforms)
+  - ElevenLabs (implemented with API support)
+  - OpenAI TTS (stub)
+  - Amazon Polly (stub)
+  - Mock provider for testing
+- **Smart Text Chunking**: Intelligently splits long text for optimal TTS processing
+- **Audio Caching**: Automatic caching with LRU eviction to speed up repeated synthesis
+- **Progress Tracking**: Built-in progress bars with tqdm and customizable callbacks
+- **Multiple Audio Formats**: Support for AIFF, WAV, M4A, MP3, CAF, FLAC, AAC, OGG
+- **Background Pre-caching**: Queue and cache audio chunks in the background (Chatterbox only)
 
 ## Table of Contents
 
 - [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Command Line Usage](#command-line-usage)
+- [Python API](#python-api)
+- [Advanced Features](#advanced-features)
+- [Development](#development)
 - [License](#license)
 
 ## Installation
@@ -21,12 +38,451 @@ It's 2025, use [uv](https://github.com/astral-sh/uv)
 `gensay` is intended to be used as a CLI tool that is a drop-in replacement to the macOS `say` CLI.
 
 ```console
-uv pip tool install gensay
+# Install as a tool
+uv tool install gensay
+
+# Or add to your project
+uv add gensay
+
+# From source
+git clone https://github.com/anthonywu/gensay
+cd gensay
+uv pip install -e .
 ```
 
-Wherever you used `say` in your prior projects, just globally replace the command mention with `gensay`.
+## Quick Start
 
-You can also use it from your Python apps by `uv add gensay` to your project.
+```bash
+# Basic usage - speaks the text
+gensay "Hello, world!"
+
+# Use specific voice
+gensay -v Samantha "Hello from Samantha"
+
+# Save to audio file
+gensay -o greeting.m4a "Welcome to gensay"
+
+# List available voices (two ways)
+gensay -v '?'
+gensay --list-voices
+```
+
+## Command Line Usage
+
+### Basic Options
+
+```bash
+# Speak text
+gensay "Hello, world!"
+
+# Read from file
+gensay -f document.txt
+
+# Read from stdin
+echo "Hello from pipe" | gensay -f -
+
+# Specify voice
+gensay -v Alex "Hello from Alex"
+
+# Adjust speech rate (words per minute)
+gensay -r 200 "Speaking faster"
+
+# Save to file
+gensay -o output.m4a "Save this speech"
+
+# Specify audio format
+gensay -o output.wav --format wav "Different format"
+```
+
+### Provider Selection
+
+```bash
+# Use macOS native say command
+gensay --provider macos "Using system TTS"
+
+# List voices for specific provider
+gensay --provider macos --list-voices
+gensay --provider mock --list-voices
+
+# Use mock provider for testing
+gensay --provider mock "Testing without real TTS"
+
+# Use Chatterbox explicitly
+gensay --provider chatterbox "Local AI voice"
+
+# Default provider depends on platform
+gensay "Hello"  # Uses 'macos' on macOS, 'chatterbox' on other platforms
+```
+
+### Advanced Options
+
+```bash
+# Show progress bar
+gensay --progress "Long text with progress tracking"
+
+# Pre-cache audio chunks in background
+gensay --provider chatterbox --cache-ahead "Pre-process this text"
+
+# Adjust chunk size
+gensay --chunk-size 1000 "Process in larger chunks"
+
+# Cache management
+gensay --cache-stats     # Show cache statistics
+gensay --clear-cache     # Clear all cached audio
+gensay --no-cache "Text" # Disable cache for this run
+```
+
+## Python API
+
+### Basic Usage
+
+```python
+from gensay import ChatterboxProvider, TTSConfig, AudioFormat
+
+# Create provider
+provider = ChatterboxProvider()
+
+# Speak text
+provider.speak("Hello from Python")
+
+# Save to file
+provider.save_to_file("Save this", "output.m4a")
+
+# List voices
+voices = provider.list_voices()
+for voice in voices:
+    print(f"{voice['id']}: {voice['name']}")
+```
+
+### Advanced Configuration
+
+```python
+from gensay import ChatterboxProvider, TTSConfig, AudioFormat
+
+# Configure TTS
+config = TTSConfig(
+    voice="default",
+    rate=150,
+    format=AudioFormat.M4A,
+    cache_enabled=True,
+    extra={
+        'show_progress': True,
+        'chunk_size': 500
+    }
+)
+
+# Create provider with config
+provider = ChatterboxProvider(config)
+
+# Add progress callback
+def on_progress(progress: float, message: str):
+    print(f"Progress: {progress:.0%} - {message}")
+
+config.progress_callback = on_progress
+
+# Use the configured provider
+provider.speak("Text with all options configured")
+```
+
+### Text Chunking
+
+```python
+from gensay import chunk_text_for_tts, TextChunker
+
+# Simple chunking
+chunks = chunk_text_for_tts(long_text, max_chunk_size=500)
+
+# Advanced chunking with custom strategy
+chunker = TextChunker(
+    max_chunk_size=1000,
+    strategy="paragraph",  # or "sentence", "word", "character"
+    overlap_size=50
+)
+chunks = chunker.chunk_text(document)
+```
+
+### ElevenLabs Provider
+
+To use the ElevenLabs provider, you need:
+
+1. An API key from [ElevenLabs](https://elevenlabs.io)
+2. Set the environment variable: `export ELEVENLABS_API_KEY="your-api-key"`
+
+```bash
+# List ElevenLabs voices
+gensay --provider elevenlabs --list-voices
+
+# Use a specific ElevenLabs voice
+gensay --provider elevenlabs -v Rachel "Hello from ElevenLabs"
+
+# Save to file with high quality
+gensay --provider elevenlabs -o speech.mp3 "High quality AI speech"
+```
+
+For Nix users with custom portaudio installation:
+```bash
+# Use the provided setup script
+source setup_portaudio.sh
+
+# Then install/reinstall gensay
+pip install -e .
+```
+
+## Advanced Features
+
+### Caching System
+
+The caching system automatically stores generated audio to speed up repeated synthesis:
+
+```python
+from gensay import TTSCache
+
+# Create cache instance
+cache = TTSCache(
+    enabled=True,
+    max_size_mb=500,
+    max_items=1000
+)
+
+# Get cache statistics
+stats = cache.get_stats()
+print(f"Cache size: {stats['size_mb']:.2f} MB")
+print(f"Cached items: {stats['items']}")
+
+# Clear cache
+cache.clear()
+```
+
+### Creating Custom Providers
+
+```python
+from gensay.providers import TTSProvider, TTSConfig, AudioFormat
+from typing import Optional, Union, Any
+from pathlib import Path
+
+class MyCustomProvider(TTSProvider):
+    def speak(self, text: str, voice: Optional[str] = None, 
+              rate: Optional[int] = None) -> None:
+        # Your implementation
+        self.update_progress(0.5, "Halfway done")
+        # ... generate and play audio ...
+        self.update_progress(1.0, "Complete")
+    
+    def save_to_file(self, text: str, output_path: Union[str, Path],
+                     voice: Optional[str] = None, rate: Optional[int] = None,
+                     format: Optional[AudioFormat] = None) -> Path:
+        # Your implementation
+        return Path(output_path)
+    
+    def list_voices(self) -> list[dict[str, Any]]:
+        return [
+            {'id': 'voice1', 'name': 'Voice One', 'language': 'en-US'}
+        ]
+    
+    def get_supported_formats(self) -> list[AudioFormat]:
+        return [AudioFormat.WAV, AudioFormat.MP3]
+```
+
+### Async Support
+
+All providers support async operations:
+
+```python
+import asyncio
+from gensay import ChatterboxProvider
+
+async def main():
+    provider = ChatterboxProvider()
+    
+    # Async speak
+    await provider.speak_async("Async speech")
+    
+    # Async save
+    await provider.save_to_file_async("Async save", "output.m4a")
+
+asyncio.run(main())
+```
+
+## Development
+
+This project uses [just](https://just.systems) for common development tasks. First, install just:
+
+```bash
+# macOS (using Nix which you already have)
+nix-env -iA nixpkgs.just
+
+# Or using Homebrew
+brew install just
+
+# Or using cargo
+cargo install just
+```
+
+### Quick Start
+
+```bash
+# Setup development environment
+just setup
+
+# Run tests
+just test
+
+# Run all quality checks
+just check
+
+# See all available commands
+just
+```
+
+### Common Development Commands
+
+#### Testing
+```bash
+# Run all tests
+just test
+
+# Run tests with coverage
+just test-cov
+
+# Run specific test
+just test-specific tests/test_providers.py::test_mock_provider_speak
+
+# Watch tests (auto-run on file changes)
+just watch
+
+# Quick test (mock provider only)
+just quick-test
+```
+
+#### Code Quality
+```bash
+# Run linter
+just lint
+
+# Auto-fix linting issues
+just lint-fix
+
+# Format code
+just format
+
+# Type checking
+just typecheck
+
+# Run all checks (lint, format, typecheck)
+just check
+
+# Pre-commit checks (format, lint, test)
+just pre-commit
+```
+
+#### Running the CLI
+```bash
+# Run with mock provider
+just run-mock "Hello, world!"
+just run-mock -v '?'
+
+# Run with macOS provider
+just run-macos "Hello from macOS"
+
+# Cache management
+just cache-stats
+just cache-clear
+```
+
+#### Development Utilities
+```bash
+# Run example script
+just example
+
+# Create a new provider stub
+just new-provider mylibrary
+
+# Clean build artifacts
+just clean
+
+# Build package
+just build
+
+# Benchmark text chunking
+just benchmark-chunking
+
+# Show current version
+just version
+```
+
+### Manual Setup (without just)
+
+If you prefer not to use just, here are the equivalent commands:
+
+```bash
+# Setup
+uv venv
+uv pip install -e ".[test]"
+
+# Testing
+uv run pytest -v
+uv run pytest --cov=gensay --cov-report=term-missing
+
+# Linting and formatting
+uv run ruff check src tests
+uv run ruff format src tests
+
+# Type checking
+uv run mypy src
+```
+
+### Project Structure
+
+```
+gensay/
+├── src/gensay/
+│   ├── __init__.py
+│   ├── main.py              # CLI entry point
+│   ├── providers/           # TTS provider implementations
+│   │   ├── base.py         # Abstract base provider
+│   │   ├── chatterbox.py   # Chatterbox provider
+│   │   ├── macos_say.py    # macOS say wrapper
+│   │   └── ...            # Other providers
+│   ├── cache.py            # Caching system
+│   └── text_chunker.py     # Text chunking logic
+├── tests/                  # Test suite
+├── examples/               # Example scripts
+├── justfile                # Development commands
+└── README.md
+```
+
+### Adding a New Provider
+
+1. Use the just command to create a stub:
+   ```bash
+   just new-provider myprovider
+   ```
+
+2. This creates `src/gensay/providers/myprovider.py` with a template
+
+3. Add the provider to `src/gensay/providers/__init__.py`:
+   ```python
+   from .myprovider import MyProviderProvider
+   ```
+
+4. Register it in `src/gensay/main.py`:
+   ```python
+   PROVIDERS = {
+       # ... existing providers ...
+       'myprovider': MyProviderProvider,
+   }
+   ```
+
+5. Implement the required methods in your provider class
+
+### Code Style Guide
+
+- Python 3.11+ with type hints
+- Follow PEP8 and Google Python Style Guide
+- Use `ruff` for linting and formatting
+- Keep docstrings concise but informative
+- Prefer `pathlib.Path` over `os.path`
+- Use `pytest` for testing
 
 ## License
 
