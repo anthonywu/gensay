@@ -176,14 +176,11 @@ class ElevenLabsProvider(TTSProvider):
         # Higher stability = slower, more careful speech
         # Lower stability = faster, more expressive speech
 
-        if rate:
-            # Map WPM to stability (inverse relationship)
-            # Normal rate ~150 WPM = 0.5 stability
-            # Fast rate ~200 WPM = 0.3 stability
-            # Slow rate ~100 WPM = 0.7 stability
-            stability = max(0.0, min(1.0, 1.0 - (rate - 100) / 200))
-        else:
-            stability = 0.5  # Default
+        # Map WPM to stability (inverse relationship)
+        # Normal rate ~150 WPM = 0.5 stability
+        # Fast rate ~200 WPM = 0.3 stability
+        # Slow rate ~100 WPM = 0.7 stability
+        stability = max(0.0, min(1.0, 1.0 - (rate - 100) / 200)) if rate else 0.5
 
         return VoiceSettings(
             stability=stability,

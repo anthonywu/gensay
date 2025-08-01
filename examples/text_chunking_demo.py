@@ -19,12 +19,12 @@ def demo_basic_chunking():
     print("=== Basic Text Chunking Demo ===\n")
 
     text = """
-    The quick brown fox jumps over the lazy dog. This pangram sentence contains 
-    every letter of the alphabet! It's commonly used for testing fonts and 
+    The quick brown fox jumps over the lazy dog. This pangram sentence contains
+    every letter of the alphabet! It's commonly used for testing fonts and
     keyboard layouts.
-    
-    In the field of natural language processing, text chunking is an essential 
-    preprocessing step. It helps break down large texts into manageable pieces 
+
+    In the field of natural language processing, text chunking is an essential
+    preprocessing step. It helps break down large texts into manageable pieces
     while preserving semantic boundaries.
     """
 
@@ -45,12 +45,12 @@ def demo_tts_chunking():
     print("\n\n=== TTS-Optimized Chunking Demo ===\n")
 
     text = """
-    Welcome to the future of voice synthesis! With advanced text-to-speech 
-    technology, you can create natural-sounding voices. The system handles 
-    long texts by intelligently splitting them into chunks. Each chunk is 
+    Welcome to the future of voice synthesis! With advanced text-to-speech
+    technology, you can create natural-sounding voices. The system handles
+    long texts by intelligently splitting them into chunks. Each chunk is
     processed separately, then seamlessly combined.
-    
-    This approach ensures optimal quality: no cutoffs mid-word, natural pauses 
+
+    This approach ensures optimal quality: no cutoffs mid-word, natural pauses
     at sentence boundaries, and consistent voice characteristics throughout.
     """
 
@@ -73,7 +73,7 @@ def demo_different_strategies():
     print("\n\n=== Different Chunking Strategies Demo ===\n")
 
     text = """First paragraph talks about one topic.
-    
+
 Second paragraph discusses another topic entirely.
 
 Third paragraph concludes the discussion."""
@@ -155,22 +155,22 @@ def demo_real_world_example():
 
     article = """
     Artificial Intelligence in Healthcare: A Revolution in Progress
-    
-    The integration of artificial intelligence (AI) into healthcare systems 
-    represents one of the most significant technological advances of our time. 
-    From diagnostic imaging to drug discovery, AI is transforming how medical 
+
+    The integration of artificial intelligence (AI) into healthcare systems
+    represents one of the most significant technological advances of our time.
+    From diagnostic imaging to drug discovery, AI is transforming how medical
     professionals approach patient care.
-    
-    One of the most promising applications is in radiology. Machine learning 
-    algorithms can now detect certain cancers with accuracy matching or 
-    exceeding that of experienced radiologists. This doesn't replace doctors; 
-    rather, it augments their capabilities, allowing them to focus on complex 
+
+    One of the most promising applications is in radiology. Machine learning
+    algorithms can now detect certain cancers with accuracy matching or
+    exceeding that of experienced radiologists. This doesn't replace doctors;
+    rather, it augments their capabilities, allowing them to focus on complex
     cases and patient interaction.
-    
-    However, challenges remain. Data privacy, algorithm bias, and the need for 
-    explainable AI are critical concerns that must be addressed. As we move 
-    forward, collaboration between technologists, healthcare providers, and 
-    policymakers will be essential to realize AI's full potential while 
+
+    However, challenges remain. Data privacy, algorithm bias, and the need for
+    explainable AI are critical concerns that must be addressed. As we move
+    forward, collaboration between technologists, healthcare providers, and
+    policymakers will be essential to realize AI's full potential while
     maintaining ethical standards.
     """
 

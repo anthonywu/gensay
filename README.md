@@ -347,8 +347,8 @@ just test-cov
 # Run specific test
 just test-specific tests/test_providers.py::test_mock_provider_speak
 
-# Watch tests (auto-run on file changes)
-just watch
+# Watch tests - not available in current justfile
+# Install pytest-watch and run: uv run ptw tests -- -v
 
 # Quick test (mock provider only)
 just quick-test
@@ -392,10 +392,9 @@ just cache-clear
 #### Development Utilities
 ```bash
 # Run example script
-just example
+just demo
 
-# Create a new provider stub
-just new-provider mylibrary
+# Create a new provider stub - not available in current justfile
 
 # Clean build artifacts
 just clean
@@ -403,11 +402,10 @@ just clean
 # Build package
 just build
 
-# Benchmark text chunking
-just benchmark-chunking
+# Benchmark text chunking - not available in current justfile
 
-# Show current version
-just version
+# Show current version - not available in current justfile
+# Use: grep "__version__" src/gensay/__about__.py | cut -d'"' -f2
 ```
 
 ### Manual Setup (without just)
@@ -428,7 +426,7 @@ uv run ruff check src tests
 uv run ruff format src tests
 
 # Type checking
-uv run mypy src
+uvx ty check src
 ```
 
 ### Project Structure
@@ -455,7 +453,7 @@ gensay/
 
 1. Use the just command to create a stub:
    ```bash
-   just new-provider myprovider
+   # The 'new-provider' command is not available in current justfile
    ```
 
 2. This creates `src/gensay/providers/myprovider.py` with a template

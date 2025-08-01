@@ -58,10 +58,9 @@ def create_parser() -> argparse.ArgumentParser:
   gensay --provider macos --list-voices # List voices for specific provider""",
     )
 
-    # Text input options (mutually exclusive)
-    input_group = parser.add_mutually_exclusive_group()
-    input_group.add_argument("message", nargs="*", help="Text message to speak")
-    input_group.add_argument(
+    # Text input options
+    parser.add_argument("message", nargs="*", default=[], help="Text message to speak")
+    parser.add_argument(
         "-f", "--input-file", dest="file", help='Read text from file (use "-" for stdin)'
     )
 
@@ -116,6 +115,11 @@ def create_parser() -> argparse.ArgumentParser:
 
 def get_text_input(args) -> str:
     """Get text input from command line arguments."""
+    # Check for mutual exclusivity
+    if args.message and args.file:
+        print("Error: Cannot specify both message and -f option", file=sys.stderr)
+        sys.exit(1)
+
     if args.message:
         # Join multiple words from positional arguments
         return " ".join(args.message)
@@ -164,10 +168,7 @@ def list_voices(provider: TTSProvider) -> None:
                 extra_info.append(voice["age"])
 
             if extra_info:
-                if desc:
-                    desc = f"{desc} - {', '.join(extra_info)}"
-                else:
-                    desc = ", ".join(extra_info)
+                desc = f"{desc} - {', '.join(extra_info)}" if desc else ", ".join(extra_info)
 
             if desc:
                 print(f"{display_name:<20} {lang:<10} # {desc}")
@@ -210,7 +211,7 @@ def progress_callback(progress: float, message: str) -> None:
         print()  # New line when complete
 
 
-def main():
+def main():  # noqa: C901
     """Main entry point."""
     # Load environment variables from .env file if present
     load_dotenv()

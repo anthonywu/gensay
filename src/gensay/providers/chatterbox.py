@@ -216,7 +216,7 @@ class ChatterboxProvider(TTSProvider):
         data = f"{text}|{voice}|{rate}"
         return hashlib.sha256(data.encode()).hexdigest()
 
-    def _generate_audio(self, text: str, voice: str, rate: int) -> bytes:
+    def _generate_audio(self, text: str, voice: str, rate: int) -> bytes:  # noqa: ARG002
         """Generate audio data using Chatterbox."""
         try:
             # Generate audio using ChatterboxTTS
@@ -236,10 +236,7 @@ class ChatterboxProvider(TTSProvider):
             import numpy as np
 
             # Convert tensor to numpy array first
-            if hasattr(wav_array, "cpu"):  # It's a torch tensor
-                wav_numpy = wav_array.cpu().numpy()
-            else:
-                wav_numpy = wav_array
+            wav_numpy = wav_array.cpu().numpy() if hasattr(wav_array, "cpu") else wav_array
 
             # Ensure we have a 1D array
             if wav_numpy.ndim > 1:
@@ -337,7 +334,7 @@ class ChatterboxProvider(TTSProvider):
                     raise RuntimeError(
                         f"Format {format} requires pydub. Install with: pip install pydub. "
                         f"Audio saved as WAV to {wav_path}"
-                    )
+                    ) from None
             else:
                 raise ValueError(f"Unsupported audio format: {format}")
         except Exception as e:
@@ -350,7 +347,7 @@ class ChatterboxProvider(TTSProvider):
         if hasattr(self, "_executor"):
             self._executor.shutdown(wait=False)
         if hasattr(self, "_pyaudio") and self._pyaudio is not None:
-            try:
+            try:  # noqa: SIM105
                 self._pyaudio.terminate()
             except Exception:
                 pass  # Ignore errors during cleanup

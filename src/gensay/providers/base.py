@@ -49,7 +49,7 @@ class TTSConfig:
     cache_dir: Path | None = None
     progress_callback: ProgressCallback | None = None
     # Provider-specific config
-    extra: dict[str, Any] = None
+    extra: dict[str, Any] | None = None
 
     def __post_init__(self):
         if self.extra is None:

@@ -33,9 +33,8 @@ warnings.filterwarnings(
     message=".*sdpa.*attention does not support.*output_attentions.*",
 )
 
-from .__about__ import __version__
-from .cache import TTSCache
-from .providers import (
+from .cache import TTSCache  # noqa: E402
+from .providers import (  # noqa: E402
     AmazonPollyProvider,
     AudioFormat,
     ChatterboxProvider,
@@ -47,7 +46,7 @@ from .providers import (
     TTSConfig,
     TTSProvider,
 )
-from .text_chunker import TextChunker, chunk_text_for_tts
+from .text_chunker import TextChunker, chunk_text_for_tts  # noqa: E402
 
 __all__ = [
     "__version__",

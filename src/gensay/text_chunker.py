@@ -385,7 +385,7 @@ def chunk_text_for_tts(
     # Convert string strategy to enum if needed
     if isinstance(strategy, str):
         strategy = ChunkingStrategy(strategy)
-    
+
     config = ChunkingConfig(
         max_chunk_size=max_chunk_size,
         strategy=strategy,

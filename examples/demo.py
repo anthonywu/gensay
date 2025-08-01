@@ -48,7 +48,7 @@ def main():
     functionality works. When processing long documents, it's important to
     break them into manageable chunks that fit within the TTS engine's
     limitations while preserving natural speech boundaries.
-    
+
     The chunking algorithm intelligently splits text at sentence boundaries
     when possible, ensuring that the resulting audio sounds natural and
     continuous.
