@@ -261,24 +261,24 @@ from typing import Optional, Union, Any
 from pathlib import Path
 
 class MyCustomProvider(TTSProvider):
-    def speak(self, text: str, voice: Optional[str] = None, 
+    def speak(self, text: str, voice: Optional[str] = None,
               rate: Optional[int] = None) -> None:
         # Your implementation
         self.update_progress(0.5, "Halfway done")
         # ... generate and play audio ...
         self.update_progress(1.0, "Complete")
-    
+
     def save_to_file(self, text: str, output_path: Union[str, Path],
                      voice: Optional[str] = None, rate: Optional[int] = None,
                      format: Optional[AudioFormat] = None) -> Path:
         # Your implementation
         return Path(output_path)
-    
+
     def list_voices(self) -> list[dict[str, Any]]:
         return [
             {'id': 'voice1', 'name': 'Voice One', 'language': 'en-US'}
         ]
-    
+
     def get_supported_formats(self) -> list[AudioFormat]:
         return [AudioFormat.WAV, AudioFormat.MP3]
 ```
@@ -293,10 +293,10 @@ from gensay import ChatterboxProvider
 
 async def main():
     provider = ChatterboxProvider()
-    
+
     # Async speak
     await provider.speak_async("Async speech")
-    
+
     # Async save
     await provider.save_to_file_async("Async save", "output.m4a")
 
@@ -401,11 +401,6 @@ just clean
 
 # Build package
 just build
-
-# Benchmark text chunking - not available in current justfile
-
-# Show current version - not available in current justfile
-# Use: grep "__version__" src/gensay/__about__.py | cut -d'"' -f2
 ```
 
 ### Manual Setup (without just)
@@ -415,7 +410,7 @@ If you prefer not to use just, here are the equivalent commands:
 ```bash
 # Setup
 uv venv
-uv pip install -e ".[test]"
+uv pip install -e ".[dev]"
 
 # Testing
 uv run pytest -v

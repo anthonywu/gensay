@@ -26,7 +26,7 @@ warnings.filterwarnings(
     module="contextlib",
 )
 
-# Suppress SDPA attention warning
+# Suppress SDPA attention warnping
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
@@ -49,7 +49,6 @@ from .providers import (  # noqa: E402
 from .text_chunker import TextChunker, chunk_text_for_tts  # noqa: E402
 
 __all__ = [
-    "__version__",
     "TTSProvider",
     "TTSConfig",
     "AudioFormat",
