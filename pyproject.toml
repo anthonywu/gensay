@@ -3,7 +3,7 @@ requires = ["uv_build>=0.8.4,<0.9.0"]
 build-backend = "uv_build"
 
 [project]
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
     "accelerate>=1.9.0",
     "chatterbox-tts",                # Custom developer fork/source defined in tool.uv.sources
@@ -53,10 +53,9 @@ audio-formats = ["pydub>=0.25.0", "ffmpeg-python>=0.2.0"]
 # All optional dependencies
 all = ["gensay[openai,aws,audio-formats]"]
 
-# uv-specific configuration
-[tool.uv]
-# Define development dependencies
-dev-dependencies = [
+# Development dependencies (PEP 735)
+[dependency-groups]
+dev = [
     "pdoc>=15.0,<16",
     "pygments>=2.19,<3.0",
     "pytest>=8.0.0",
@@ -67,7 +66,7 @@ dev-dependencies = [
 
 [tool.uv.sources]
 # the upstream chatterbox-tts rigidly pins its dependencies, the fork relaxes the semvar ranges
-chatterbox-tts = { git = "https://github.com/anthonywu/chatterbox.git", branch = "dev" }
+chatterbox-tts = { git = "https://github.com/anthonywu/chatterbox.git", branch = "allow-dep-updates" }
 
 [tool.coverage.run]
 source_pkgs = ["gensay", "tests"]

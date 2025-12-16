@@ -95,6 +95,39 @@ test-elevenlabs:
     fi
     gensay --provider elevenlabs --list-voices
 
+# Run Chatterbox unit tests (mocked)
+test-chatterbox-unit:
+    uv run pytest tests/test_chatterbox_provider.py -v -k "Mocked"
+
+# Live integration test for Chatterbox (requires chatterbox-tts installed)
+test-chatterbox:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "=== Chatterbox Integration Test ==="
+    echo ""
+    echo "1. Listing voices..."
+    gensay --provider chatterbox --list-voices
+    echo ""
+    echo "2. Generating speech (short text)..."
+    gensay --provider chatterbox "Hello from Chatterbox TTS."
+    echo ""
+    echo "3. Saving to WAV file..."
+    gensay --provider chatterbox -o /tmp/chatterbox-test.wav "This is a file output test."
+    ls -la /tmp/chatterbox-test.wav
+    echo ""
+    echo "4. Saving to MP3 file..."
+    gensay --provider chatterbox -o /tmp/chatterbox-test.mp3 "Testing MP3 format export."
+    ls -la /tmp/chatterbox-test.mp3
+    echo ""
+    echo "5. Testing longer text with chunking..."
+    gensay --provider chatterbox "This is a longer piece of text that will test the chunking functionality. The text chunker should split this into appropriate segments for the TTS model to process efficiently."
+    echo ""
+    echo "=== All Chatterbox tests passed ==="
+
+# Run Chatterbox with real model (requires chatterbox-tts installed)
+run-chatterbox *ARGS:
+    gensay --provider chatterbox {{ARGS}}
+
 # Show cache statistics
 cache-stats:
     gensay --cache-stats
