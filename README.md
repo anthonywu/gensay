@@ -219,13 +219,31 @@ gensay --provider elevenlabs -v Rachel "Hello from ElevenLabs"
 gensay --provider elevenlabs -o speech.mp3 "High quality AI speech"
 ```
 
-For Nix users with custom portaudio installation:
-```bash
-# Use the provided setup script
-source setup_portaudio.sh
+### PortAudio Setup (for pyaudio)
 
-# Then install/reinstall gensay
-pip install -e .
+The `pyaudio` dependency requires the PortAudio C library to be installed at the system level.
+
+**Homebrew (macOS):**
+```bash
+brew install portaudio
+uv pip install -e .
+```
+
+**Nix:**
+```bash
+nix-env -iA nixpkgs.portaudio
+```
+
+Then use `just setup` which automatically configures the include/library paths:
+```bash
+just setup
+```
+
+Or manually set the paths before installing:
+```bash
+export C_INCLUDE_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/include:$C_INCLUDE_PATH"
+export LIBRARY_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/lib:$LIBRARY_PATH"
+uv pip install -e .
 ```
 
 ## Advanced Features

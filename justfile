@@ -4,6 +4,12 @@
 # Use bash for all recipes
 set shell := ["bash", "-uc"]
 
+# Portaudio paths for pyaudio compilation (supports Nix and Homebrew)
+portaudio_path := `nix-build '<nixpkgs>' -A portaudio --no-out-link 2>/dev/null || brew --prefix portaudio 2>/dev/null || echo ""`
+
+export C_INCLUDE_PATH := if portaudio_path != "" { portaudio_path + "/include" } else { "" }
+export LIBRARY_PATH := if portaudio_path != "" { portaudio_path + "/lib" } else { "" }
+
 # Default command - show available commands
 default:
     @just --list
