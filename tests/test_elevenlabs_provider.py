@@ -102,5 +102,8 @@ class TestElevenLabsProviderMocked:
         settings_fast = provider._get_voice_settings(200)
 
         # Slower rate should have higher stability
+        assert settings_slow.stability is not None
+        assert settings_normal.stability is not None
+        assert settings_fast.stability is not None
         assert settings_slow.stability > settings_normal.stability
         assert settings_normal.stability > settings_fast.stability

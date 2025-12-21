@@ -1,33 +1,43 @@
 #!/usr/bin/env python3
 """gensay - A multi-provider TTS tool compatible with macOS say command."""
 
+from __future__ import annotations
+
 import argparse
 import sys
+from importlib.metadata import version as get_pkg_version
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from dotenv import load_dotenv
+# Import lightweight base types only (no heavy provider deps)
+from .providers.base import AudioFormat, TTSConfig
 
-from .cache import TTSCache
-from .providers import (
-    AmazonPollyProvider,
-    AudioFormat,
-    ChatterboxProvider,
-    ElevenLabsProvider,
-    MacOSSayProvider,
-    MockProvider,
-    OpenAIProvider,
-    TTSConfig,
-    TTSProvider,
-)
+if TYPE_CHECKING:
+    from .providers.base import TTSProvider
 
-PROVIDERS = {
-    "chatterbox": ChatterboxProvider,
-    "macos": MacOSSayProvider,
-    "mock": MockProvider,
-    "openai": OpenAIProvider,
-    "elevenlabs": ElevenLabsProvider,
-    "polly": AmazonPollyProvider,
-}
+# Provider names for argparse choices (avoid importing heavy modules at top level)
+PROVIDER_NAMES = ["chatterbox", "elevenlabs", "macos", "mock", "openai", "polly"]
+
+
+def get_providers() -> dict:
+    """Lazily import and return provider classes."""
+    from .providers import (
+        AmazonPollyProvider,
+        ChatterboxProvider,
+        ElevenLabsProvider,
+        MacOSSayProvider,
+        MockProvider,
+        OpenAIProvider,
+    )
+
+    return {
+        "chatterbox": ChatterboxProvider,
+        "elevenlabs": ElevenLabsProvider,
+        "macos": MacOSSayProvider,
+        "mock": MockProvider,
+        "openai": OpenAIProvider,
+        "polly": AmazonPollyProvider,
+    }
 
 
 def get_default_provider() -> str:
@@ -38,6 +48,14 @@ def get_default_provider() -> str:
     else:
         # On other platforms, default to chatterbox
         return "chatterbox"
+
+
+def get_version() -> str:
+    """Get the package version from installed metadata."""
+    try:
+        return get_pkg_version("gensay")
+    except Exception:
+        return "unknown"
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -80,7 +98,7 @@ def create_parser() -> argparse.ArgumentParser:
     default_provider = get_default_provider()
     parser.add_argument(
         "--provider",
-        choices=list(PROVIDERS.keys()),
+        choices=PROVIDER_NAMES,
         default=default_provider,
         help=f"TTS provider to use (default: {default_provider})",
     )
@@ -109,6 +127,9 @@ def create_parser() -> argparse.ArgumentParser:
     # Interactive options (for compatibility)
     parser.add_argument("-i", "--interactive", help="Interactive mode (not implemented)")
     parser.add_argument("--progress", action="store_true", help="Show progress meter")
+
+    # Version
+    parser.add_argument("--version", action="version", version=f"%(prog)s {get_version()}")
 
     return parser
 
@@ -185,6 +206,8 @@ def list_voices(provider: TTSProvider) -> None:
 def handle_cache_operations(args) -> bool:
     """Handle cache-related operations. Returns True if handled."""
     if args.clear_cache or args.cache_stats:
+        from .cache import TTSCache
+
         cache = TTSCache()
 
         if args.clear_cache:
@@ -213,11 +236,14 @@ def progress_callback(progress: float, message: str) -> None:
 
 def main():  # noqa: C901
     """Main entry point."""
-    # Load environment variables from .env file if present
-    load_dotenv()
-
+    # Parse args first to allow --version to exit early without loading heavy deps
     parser = create_parser()
     args = parser.parse_args()
+
+    # Load environment variables from .env file if present
+    from dotenv import load_dotenv
+
+    load_dotenv()
 
     # Handle cache operations
     if handle_cache_operations(args):
@@ -242,9 +268,10 @@ def main():  # noqa: C901
         },
     )
 
-    # Create provider
+    # Create provider (lazy import to defer heavy deps)
     try:
-        provider_class = PROVIDERS[args.provider]
+        providers = get_providers()
+        provider_class = providers[args.provider]
         provider = provider_class(config)
     except NotImplementedError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -261,7 +288,7 @@ def main():  # noqa: C901
 
     try:
         # Handle cache-ahead for chatterbox
-        if args.cache_ahead and isinstance(provider, ChatterboxProvider):
+        if args.cache_ahead and isinstance(provider, providers["chatterbox"]):
             print("Pre-caching audio chunks...")
             provider.cache_ahead(text, args.voice, args.rate)
             print("Cache-ahead started in background")

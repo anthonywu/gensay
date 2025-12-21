@@ -18,6 +18,7 @@ dependencies = [
     "torch>=2.6,<3.0",               # chatterbox restriction, find out why later
     "torchaudio>=2.6,<3.0",          # chatterbox restriction, find out why later
     "tqdm>=4.67,<5.0",
+    "diffusers>=0.34.0",
 ]
 name = "gensay"
 description = 'Multi-provider TTS tool compatible with macOS say command'
@@ -112,7 +113,6 @@ ignore = [
 [tool.ty.rules]
 invalid-argument-type = "ignore"
 invalid-assignment = "ignore"
-possibly-unbound-attribute = "ignore"
 
 # Note: ty is still in preview and doesn't support all mypy features yet
 # The following settings were migrated from mypy but may not all be supported:

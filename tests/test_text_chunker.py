@@ -57,7 +57,7 @@ class TestTextChunker:
 
     def test_paragraph_chunking(self):
         """Test chunking at paragraph boundaries."""
-        config = ChunkingConfig(max_chunk_size=100, strategy=ChunkingStrategy.PARAGRAPH)
+        config = ChunkingConfig(max_chunk_size=30, strategy=ChunkingStrategy.PARAGRAPH)
         chunker = TextChunker(config)
 
         text = """First paragraph here.
@@ -109,10 +109,14 @@ Third paragraph here."""
         text = "1234567890abcdefghijklmnop"
         chunks = chunker.chunk_text(text)
 
-        # With overlap, chunks should share some characters
+        # With overlap of 5, step size is 15, so chunks share 5 characters
+        # chunk[0] = text[0:20] = "1234567890abcdefghij"
+        # chunk[1] = text[15:35] = "fghijklmnop"
         assert len(chunks) == 2
         assert chunks[0] == "1234567890abcdefghij"
-        assert chunks[1] == "klmnop"
+        assert chunks[1] == "fghijklmnop"
+        # Verify overlap: last 5 chars of chunk[0] == first 5 chars of chunk[1]
+        assert chunks[0][-5:] == chunks[1][:5]
 
     def test_punctuation_handling(self):
         """Test handling of various punctuation marks."""
@@ -146,6 +150,7 @@ Third paragraph here."""
 
         assert chunker.estimate_chunks("") == 0
         assert chunker.estimate_chunks("12345") == 1
+        # 13 chars with max 10 = ceil(13/10) = 2 chunks
         assert chunker.estimate_chunks("1234567890123") >= 2
 
     def test_get_chunk_info(self):
@@ -241,7 +246,7 @@ class TestEdgeCases:
         text = "supercalifragilisticexpialidocious"
         chunks = chunker.chunk_text(text)
 
-        # Word should be split at character level
+        # Word should be split at character level when it exceeds max_chunk_size
         assert len(chunks) > 1
         assert all(len(chunk) <= 5 for chunk in chunks)
 

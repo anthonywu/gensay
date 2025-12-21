@@ -3,7 +3,7 @@
 import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -49,15 +49,13 @@ class TTSConfig:
     cache_dir: Path | None = None
     progress_callback: ProgressCallback | None = None
     # Provider-specific config
-    extra: dict[str, Any] | None = None
-
-    def __post_init__(self):
-        if self.extra is None:
-            self.extra = {}
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 class TTSProvider(ABC):
     """Abstract base class for TTS providers."""
+
+    config: TTSConfig
 
     def __init__(self, config: TTSConfig | None = None):
         self.config = config or TTSConfig()
