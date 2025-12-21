@@ -157,3 +157,20 @@ docs:
 # Serve API documentation locally
 docs-serve:
     .venv/bin/pdoc -p 8080 src/gensay
+
+# Test installation across Python versions (3.11-3.14)
+test-matrix:
+    #!/usr/bin/env bash
+    set -e
+    versions=(3.11 3.12 3.13 3.14)
+    for version in "${versions[@]}"; do
+        echo "=== Python $version ==="
+        tooldir="/tmp/gensay-tool-test-$version"
+        rm -rf "$tooldir"
+        UV_TOOL_DIR="$tooldir" UV_TOOL_BIN_DIR="$tooldir/bin" uv tool install -p $version .
+    done
+    echo "✓ All Python versions passed!"
+
+# Clean up test-matrix artifacts
+test-matrix-clean:
+    rm -rf /tmp/gensay-tool-test-*
