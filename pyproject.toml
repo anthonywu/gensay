@@ -19,6 +19,8 @@ dependencies = [
     "torchaudio>=2.6,<3.0",          # chatterbox restriction, find out why later
     "tqdm>=4.67,<5.0",
     "diffusers>=0.34.0",
+    "openai>=1.98.0",
+    "distro>=1.9.0",
 ]
 name = "gensay"
 description = 'Multi-provider TTS tool compatible with macOS say command'
