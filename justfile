@@ -87,13 +87,47 @@ list-voices PROVIDER='macos':
 run-elevenlabs *ARGS:
     gensay --provider elevenlabs {{ARGS}}
 
-# Test ElevenLabs voices
+# Run ElevenLabs provider integration tests (requires ELEVENLABS_API_KEY env var)
 test-elevenlabs:
-    @if [ -z "$ELEVENLABS_API_KEY" ]; then \
-        echo "Error: ELEVENLABS_API_KEY environment variable not set"; \
+    @if [ -z "${ELEVENLABS_API_KEY:-}" ]; then \
+        echo "Error: ELEVENLABS_API_KEY not set. Run: export ELEVENLABS_API_KEY=<your-key>"; \
         exit 1; \
     fi
-    gensay --provider elevenlabs --list-voices
+    uv run pytest tests/test_elevenlabs_provider.py -v
+
+# Run ElevenLabs unit tests (mocked, no API key needed)
+test-elevenlabs-unit:
+    uv run pytest tests/test_elevenlabs_provider.py -v -k "Mocked"
+
+# Run OpenAI provider integration tests (requires OPENAI_API_KEY env var)
+test-openai:
+    @if [ -z "${OPENAI_API_KEY:-}" ]; then \
+        echo "Error: OPENAI_API_KEY not set. Run: export OPENAI_API_KEY=<your-key>"; \
+        exit 1; \
+    fi
+    uv run pytest tests/test_openai_provider.py -v
+
+# Run OpenAI unit tests (mocked, no API key needed)
+test-openai-unit:
+    uv run pytest tests/test_openai_provider.py -v -k "Mocked"
+
+# Run Amazon Polly provider integration tests (requires AWS credentials)
+test-polly:
+    @[ -n "${AWS_REGION:-}" ] || { echo "Error: AWS_REGION not set. Run: export AWS_REGION=<region>"; exit 1; }
+    @aws sts get-caller-identity --region "$AWS_REGION" > /dev/null 2>&1 || [ -n "${AWS_ACCESS_KEY_ID:-}" -a -n "${AWS_SECRET_ACCESS_KEY:-}" ] || { echo "Error: AWS credentials not configured (run 'aws configure' or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)"; exit 1; }
+    uv run pytest tests/test_amazon_polly_provider.py -v
+
+# Run Amazon Polly unit tests (mocked, no credentials needed)
+test-polly-unit:
+    uv run pytest tests/test_amazon_polly_provider.py -v -k "Mocked"
+
+# Run with OpenAI provider (requires OPENAI_API_KEY env var)
+run-openai *ARGS:
+    gensay --provider openai {{ARGS}}
+
+# Run with Amazon Polly provider (requires AWS credentials)
+run-polly *ARGS:
+    gensay --provider polly {{ARGS}}
 
 # Run Chatterbox unit tests (mocked)
 test-chatterbox-unit:
