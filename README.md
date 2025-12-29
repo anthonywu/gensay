@@ -200,6 +200,9 @@ gensay --repl
 
 # With a specific provider and voice
 gensay --provider openai -v nova --repl
+
+# Chatterbox with REPL (recommended - keeps model loaded)
+gensay -p chatterbox --repl
 ```
 
 In REPL mode:
