@@ -175,7 +175,14 @@ class TextChunker:
             else:
                 if current_chunk:
                     chunks.append(current_chunk)
-                current_chunk = word
+
+                # Handle case where single word exceeds max size
+                if len(word) > self.config.max_chunk_size:
+                    for i in range(0, len(word), self.config.max_chunk_size):
+                        chunks.append(word[i : i + self.config.max_chunk_size])
+                    current_chunk = ""
+                else:
+                    current_chunk = word
 
         if current_chunk:
             chunks.append(current_chunk)
@@ -287,7 +294,9 @@ class TextChunker:
         """Estimate the number of chunks that will be created."""
         if not text:
             return 0
-        return max(1, len(text) // (self.config.max_chunk_size - self.config.overlap_size))
+        step = self.config.max_chunk_size - self.config.overlap_size
+        # Ceiling division: -(-a // b)
+        return max(1, -(-len(text) // step))
 
     def get_chunk_info(self, text: str) -> list[tuple[int, int, str]]:
         """

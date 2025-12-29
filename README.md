@@ -11,9 +11,9 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 - **Multiple TTS Providers**: Extensible provider system with support for:
   - macOS native `say` command (default on macOS)
   - Chatterbox (local AI TTS, default on other platforms)
-  - ElevenLabs (implemented with API support)
-  - OpenAI TTS (stub)
-  - Amazon Polly (stub)
+  - ElevenLabs (cloud API)
+  - OpenAI TTS (cloud API)
+  - Amazon Polly (cloud API)
   - Mock provider for testing
 - **Smart Text Chunking**: Intelligently splits long text for optimal TTS processing
 - **Audio Caching**: Automatic caching with LRU eviction to speed up repeated synthesis
@@ -27,6 +27,7 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 - [Quick Start](#quick-start)
 - [Command Line Usage](#command-line-usage)
 - [Python API](#python-api)
+- [Provider Configurations](#provider-configurations)
 - [Advanced Features](#advanced-features)
 - [Development](#development)
 - [License](#license)
@@ -37,6 +38,26 @@ It's 2025, use [uv](https://github.com/astral-sh/uv)
 
 `gensay` is intended to be used as a CLI tool that is a drop-in replacement to the macOS `say` CLI.
 
+### System Dependencies (ElevenLabs provider only)
+
+**PortAudio is required** if you plan to use the ElevenLabs provider. The `pyaudio` dependency needs the PortAudio C library to compile successfully.
+
+Other providers (macOS, OpenAI, Amazon Polly, Chatterbox) do not require PortAudio.
+
+**Homebrew (macOS):**
+
+```bash
+brew install portaudio
+```
+
+**Nix:**
+
+```bash
+nix-env -iA nixpkgs.portaudio
+```
+
+### Installation
+
 ```console
 # Install as a tool
 uv tool install gensay
@@ -44,9 +65,33 @@ uv tool install gensay
 # Or add to your project
 uv add gensay
 
-# From source
+# From source (with automatic PortAudio path configuration)
 git clone https://github.com/anthonywu/gensay
 cd gensay
+just setup
+```
+
+### Optional Provider Dependencies
+
+Some providers require additional dependencies:
+
+```bash
+# ElevenLabs provider (requires PortAudio, see below)
+pip install 'gensay[elevenlabs]'
+```
+
+**Installation Help:**
+
+- [PyAudio documentation](https://pypi.org/project/PyAudio/) - For PortAudio/PyAudio installation issues
+- [ElevenLabs Python library docs](https://elevenlabs.io/docs/agents-platform/libraries/python) - Official ElevenLabs Python documentation
+
+For source installation, `just setup` automatically configures the PortAudio include/library paths for both Nix and Homebrew installations.
+
+Or manually set the paths before installing:
+
+```bash
+export C_INCLUDE_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/include:$C_INCLUDE_PATH"
+export LIBRARY_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/lib:$LIBRARY_PATH"
 uv pip install -e .
 ```
 
@@ -201,12 +246,19 @@ chunker = TextChunker(
 chunks = chunker.chunk_text(document)
 ```
 
-### ElevenLabs Provider
+## Provider Configurations
 
-To use the ElevenLabs provider, you need:
+### ElevenLabs
 
-1. An API key from [ElevenLabs](https://elevenlabs.io)
-2. Set the environment variable: `export ELEVENLABS_API_KEY="your-api-key"`
+1. Install the optional dependency (requires PortAudio):
+   ```bash
+   pip install 'gensay[elevenlabs]'
+   ```
+2. Get an API key from [ElevenLabs](https://elevenlabs.io)
+3. Set the environment variable:
+   ```bash
+   export ELEVENLABS_API_KEY="your-api-key"
+   ```
 
 ```bash
 # List ElevenLabs voices
@@ -219,32 +271,75 @@ gensay --provider elevenlabs -v Rachel "Hello from ElevenLabs"
 gensay --provider elevenlabs -o speech.mp3 "High quality AI speech"
 ```
 
-### PortAudio Setup (for pyaudio)
+### OpenAI TTS
 
-The `pyaudio` dependency requires the PortAudio C library to be installed at the system level.
+1. Get an API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+2. Set the environment variable:
+   ```bash
+   export OPENAI_API_KEY="sk-..."
+   ```
 
-**Homebrew (macOS):**
 ```bash
-brew install portaudio
-uv pip install -e .
+# List OpenAI voices
+gensay --provider openai --list-voices
+
+# Use a specific voice (alloy, ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer)
+gensay --provider openai -v nova "Hello from OpenAI"
+
+# Save to file
+gensay --provider openai -o speech.mp3 "OpenAI TTS output"
 ```
 
-**Nix:**
+OpenAI offers two models via `config.extra['model']`:
+
+- `tts-1` (default): Faster, lower latency
+- `tts-1-hd`: Higher quality audio
+
+### Amazon Polly
+
+**Option A - Environment variables:**
+
+1. Sign in to [AWS Console](https://console.aws.amazon.com/)
+2. Go to **IAM** → **Users** → **Create user**
+3. Attach the `AmazonPollyReadOnlyAccess` policy
+4. Create access keys under **Security credentials** → **Access keys**
+5. Configure credentials (choose one method):
+
 ```bash
-nix-env -iA nixpkgs.portaudio
+export AWS_ACCESS_KEY_ID="AKIA..."
+export AWS_SECRET_ACCESS_KEY="..."
+export AWS_DEFAULT_REGION="us-west-2"
 ```
 
-Then use `just setup` which automatically configures the include/library paths:
+**Option B - AWS CLI v2:**
+
+This easy lets you [sign in through the AWS Command Line Interface](https://docs.aws.amazon.com/signin/latest/userguide/command-line-sign-in.html)
+
 ```bash
-just setup
+export AWS_DEFAULT_REGION=us-west-2
+# on your desktop with a browser
+aws login --region
+# in an env without a browser
+aws login --region --remote
 ```
 
-Or manually set the paths before installing:
+#### Polly Usage
+
 ```bash
-export C_INCLUDE_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/include:$C_INCLUDE_PATH"
-export LIBRARY_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/lib:$LIBRARY_PATH"
-uv pip install -e .
+# List Polly voices (60+ voices in many languages)
+gensay --provider polly --list-voices
+
+# Use a specific voice
+gensay --provider polly -v Joanna "Hello from Amazon Polly"
+
+# Save to file
+gensay --provider polly -o speech.mp3 "Polly TTS output"
 ```
+
+Polly supports multiple engines via `config.extra['engine']`:
+
+- `neural` (default): Higher quality, natural-sounding
+- `standard`: Lower cost, available for all voices
 
 ## Advanced Features
 
@@ -258,7 +353,7 @@ from gensay import TTSCache
 # Create cache instance
 cache = TTSCache(
     enabled=True,
-    max_size_mb=500,
+    max_size_mb=10000,
     max_items=1000
 )
 
@@ -269,6 +364,40 @@ print(f"Cached items: {stats['items']}")
 
 # Clear cache
 cache.clear()
+```
+
+**Cache Location**
+
+Cache files are stored in platform-specific user cache directories:
+
+- **macOS**: `~/Library/Caches/gensay`
+- **Linux**: `~/.cache/gensay`
+- **Windows**: `%LOCALAPPDATA%\gensay\gensay\Cache`
+
+**Managing Cache**
+
+```bash
+# Show cache statistics
+gensay --cache-stats
+
+# Clear all cached audio
+gensay --clear-cache
+
+# Disable caching for a specific command
+gensay --no-cache "Text to synthesize without caching"
+```
+
+**Manual Deletion**
+
+To manually delete the cache, remove the cache directory:
+
+```bash
+# macOS/Linux
+rm -rf ~/Library/Caches/gensay  # macOS
+rm -rf ~/.cache/gensay          # Linux
+
+# Windows (PowerShell)
+Remove-Item -Recurse -Force $env:LOCALAPPDATA\gensay\gensay\Cache
 ```
 
 ### Creating Custom Providers
@@ -355,6 +484,7 @@ just
 ### Common Development Commands
 
 #### Testing
+
 ```bash
 # Run all tests
 just test
@@ -365,14 +495,12 @@ just test-cov
 # Run specific test
 just test-specific tests/test_providers.py::test_mock_provider_speak
 
-# Watch tests - not available in current justfile
-# Install pytest-watch and run: uv run ptw tests -- -v
-
 # Quick test (mock provider only)
 just quick-test
 ```
 
 #### Code Quality
+
 ```bash
 # Run linter
 just lint
@@ -394,6 +522,7 @@ just pre-commit
 ```
 
 #### Running the CLI
+
 ```bash
 # Run with mock provider
 just run-mock "Hello, world!"
@@ -408,11 +537,10 @@ just cache-clear
 ```
 
 #### Development Utilities
+
 ```bash
 # Run example script
 just demo
-
-# Create a new provider stub - not available in current justfile
 
 # Clean build artifacts
 just clean
@@ -461,30 +589,6 @@ gensay/
 ├── justfile                # Development commands
 └── README.md
 ```
-
-### Adding a New Provider
-
-1. Use the just command to create a stub:
-   ```bash
-   # The 'new-provider' command is not available in current justfile
-   ```
-
-2. This creates `src/gensay/providers/myprovider.py` with a template
-
-3. Add the provider to `src/gensay/providers/__init__.py`:
-   ```python
-   from .myprovider import MyProviderProvider
-   ```
-
-4. Register it in `src/gensay/main.py`:
-   ```python
-   PROVIDERS = {
-       # ... existing providers ...
-       'myprovider': MyProviderProvider,
-   }
-   ```
-
-5. Implement the required methods in your provider class
 
 ### Code Style Guide
 

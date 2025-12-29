@@ -1,11 +1,21 @@
 """Tests for ElevenLabs provider."""
 
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from gensay.providers import AudioFormat, ElevenLabsProvider, TTSConfig
+
+# Directory for test artifacts (git-ignored)
+ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def setup_artifacts_dir():
+    """Create artifacts directory if it doesn't exist."""
+    ARTIFACTS_DIR.mkdir(exist_ok=True)
 
 
 @pytest.mark.skipif(not os.getenv("ELEVENLABS_API_KEY"), reason="ElevenLabs API key not set")
@@ -49,34 +59,55 @@ class TestElevenLabsProvider:
         assert AudioFormat.MP3 in formats
         assert AudioFormat.WAV in formats
 
-    @patch("elevenlabs.play")
-    @patch("elevenlabs.client.ElevenLabs.generate")
-    def test_speak(self, mock_generate, mock_play):
-        """Test speak functionality."""
-        mock_generate.return_value = b"fake audio data"
-
+    def test_save_to_file_mp3(self):
+        """Test saving speech to MP3 file."""
         config = TTSConfig()
         provider = ElevenLabsProvider(config)
 
-        provider.speak("Test speech")
+        output_path = ARTIFACTS_DIR / "elevenlabs_test_output.mp3"
+        result = provider.save_to_file("Hello from ElevenLabs TTS.", output_path)
 
-        mock_generate.assert_called_once()
-        mock_play.assert_called_once()
+        assert result == output_path
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
 
-    @patch("elevenlabs.save")
-    @patch("elevenlabs.client.ElevenLabs.generate")
-    def test_save_to_file(self, mock_generate, mock_save):
-        """Test save to file functionality."""
-        mock_generate.return_value = b"fake audio data"
-
+    def test_save_to_file_wav(self):
+        """Test saving speech to WAV file."""
         config = TTSConfig()
         provider = ElevenLabsProvider(config)
 
-        output_path = provider.save_to_file("Test speech", "output.mp3")
+        output_path = ARTIFACTS_DIR / "elevenlabs_test_output.wav"
+        result = provider.save_to_file(
+            "Testing WAV format output.", output_path, format=AudioFormat.WAV
+        )
 
-        assert output_path.name == "output.mp3"
-        mock_generate.assert_called_once()
-        mock_save.assert_called_once()
+        assert result == output_path
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
+
+    def test_save_with_different_voice(self):
+        """Test saving with a specific voice."""
+        config = TTSConfig()
+        provider = ElevenLabsProvider(config)
+
+        output_path = ARTIFACTS_DIR / "elevenlabs_test_alice_voice.mp3"
+        result = provider.save_to_file("This is the Alice voice.", output_path, voice="Alice")
+
+        assert result == output_path
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
+
+    def test_save_with_rate_adjustment(self):
+        """Test saving with rate adjustment."""
+        config = TTSConfig()
+        provider = ElevenLabsProvider(config)
+
+        output_path = ARTIFACTS_DIR / "elevenlabs_test_fast_rate.mp3"
+        result = provider.save_to_file("This is spoken at a faster rate.", output_path, rate=200)
+
+        assert result == output_path
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
 
 
 class TestElevenLabsProviderMocked:
@@ -90,7 +121,7 @@ class TestElevenLabsProviderMocked:
             ElevenLabsProvider(config)
 
     @patch.dict(os.environ, {"ELEVENLABS_API_KEY": "test-key"})
-    @patch("elevenlabs.client.ElevenLabs")
+    @patch("gensay.providers.elevenlabs.ElevenLabs")
     def test_voice_settings_rate_mapping(self, mock_client):
         """Test rate mapping to voice settings."""
         config = TTSConfig()
@@ -101,6 +132,11 @@ class TestElevenLabsProviderMocked:
         settings_normal = provider._get_voice_settings(150)
         settings_fast = provider._get_voice_settings(200)
 
-        # Slower rate should have higher stability
-        assert settings_slow.stability > settings_normal.stability
-        assert settings_normal.stability > settings_fast.stability
+        # ElevenLabs v2 uses speed parameter (slower rate = lower speed)
+        assert settings_slow.speed is not None
+        assert settings_normal.speed is not None
+        assert settings_fast.speed is not None
+        assert settings_slow.speed < settings_normal.speed
+        assert settings_normal.speed < settings_fast.speed
+        # Check specific values: 100/150 = 0.67, 150/150 = 1.0, 200/150 = 1.33
+        assert abs(settings_normal.speed - 1.0) < 0.01

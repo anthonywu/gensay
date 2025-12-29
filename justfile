@@ -16,13 +16,7 @@ default:
 
 # Setup development environment
 setup:
-    uv venv
-    uv pip install -e ".[dev]"
-    @echo "✓ Development environment ready"
-
-# Install the package in development mode
-install:
-    uv pip install -e .
+    uv sync
 
 # Run all tests
 test:
@@ -35,6 +29,11 @@ test-cov:
 # Run specific test file or function
 test-specific TEST:
     uv run pytest -v {{TEST}}
+
+check-cloud-auth:
+    @(aws sts get-caller-identity --output json | jq -r .Arn) && echo "AWS STS ready" || echo "Hint: aws login --region us-west-2 --remote"
+    @test -n "$OPENAI_API_KEY" && echo "OpenAI ready" || echo "OPENAI_API_KEY missing"
+    @test -n "${ELEVENLABS_API_KEY:-}" && echo "ElevenLabs ready" || echo "ELEVENLABS_API_KEY missing"
 
 # Run linter
 lint:
@@ -69,7 +68,8 @@ build: clean
     uv build
 
 publish:
-    uv publish --username __token__
+    @test -z "${UV_PUBLISH_TOKEN:-}" && echo "Set UV_PUBLISH_TOKEN in env to publish" && false
+    uv publish --token $UV_PUBLISH_TOKEN
 
 # Run the CLI with mock provider
 run-mock *ARGS:
@@ -87,13 +87,47 @@ list-voices PROVIDER='macos':
 run-elevenlabs *ARGS:
     gensay --provider elevenlabs {{ARGS}}
 
-# Test ElevenLabs voices
+# Run ElevenLabs provider integration tests (requires ELEVENLABS_API_KEY env var)
 test-elevenlabs:
-    @if [ -z "$ELEVENLABS_API_KEY" ]; then \
-        echo "Error: ELEVENLABS_API_KEY environment variable not set"; \
+    @if [ -z "${ELEVENLABS_API_KEY:-}" ]; then \
+        echo "Error: ELEVENLABS_API_KEY not set. Run: export ELEVENLABS_API_KEY=<your-key>"; \
         exit 1; \
     fi
-    gensay --provider elevenlabs --list-voices
+    uv run pytest tests/test_elevenlabs_provider.py -v
+
+# Run ElevenLabs unit tests (mocked, no API key needed)
+test-elevenlabs-unit:
+    uv run pytest tests/test_elevenlabs_provider.py -v -k "Mocked"
+
+# Run OpenAI provider integration tests (requires OPENAI_API_KEY env var)
+test-openai:
+    @if [ -z "${OPENAI_API_KEY:-}" ]; then \
+        echo "Error: OPENAI_API_KEY not set. Run: export OPENAI_API_KEY=<your-key>"; \
+        exit 1; \
+    fi
+    uv run pytest tests/test_openai_provider.py -v
+
+# Run OpenAI unit tests (mocked, no API key needed)
+test-openai-unit:
+    uv run pytest tests/test_openai_provider.py -v -k "Mocked"
+
+# Run Amazon Polly provider integration tests (requires AWS credentials)
+test-polly:
+    @[ -n "${AWS_REGION:-}" ] || { echo "Error: AWS_REGION not set. Run: export AWS_REGION=<region>"; exit 1; }
+    @aws sts get-caller-identity --region "$AWS_REGION" > /dev/null 2>&1 || [ -n "${AWS_ACCESS_KEY_ID:-}" -a -n "${AWS_SECRET_ACCESS_KEY:-}" ] || { echo "Error: AWS credentials not configured (run e.g. 'aws login --region us-west-2 --remote' or 'aws configure' or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)"; exit 1; }
+    uv run pytest tests/test_amazon_polly_provider.py -v
+
+# Run Amazon Polly unit tests (mocked, no credentials needed)
+test-polly-unit:
+    uv run pytest tests/test_amazon_polly_provider.py -v -k "Mocked"
+
+# Run with OpenAI provider (requires OPENAI_API_KEY env var)
+run-openai *ARGS:
+    gensay --provider openai {{ARGS}}
+
+# Run with Amazon Polly provider (requires AWS credentials)
+run-polly *ARGS:
+    gensay --provider polly {{ARGS}}
 
 # Run Chatterbox unit tests (mocked)
 test-chatterbox-unit:
@@ -106,21 +140,21 @@ test-chatterbox:
     echo "=== Chatterbox Integration Test ==="
     echo ""
     echo "1. Listing voices..."
-    gensay --provider chatterbox --list-voices
+    uv run gensay --provider chatterbox --list-voices
     echo ""
     echo "2. Generating speech (short text)..."
-    gensay --provider chatterbox "Hello from Chatterbox TTS."
+    uv run gensay --provider chatterbox "Hello from Chatterbox TTS."
     echo ""
     echo "3. Saving to WAV file..."
-    gensay --provider chatterbox -o /tmp/chatterbox-test.wav "This is a file output test."
+    uv run gensay --provider chatterbox -o /tmp/chatterbox-test.wav "This is a file output test."
     ls -la /tmp/chatterbox-test.wav
     echo ""
     echo "4. Saving to MP3 file..."
-    gensay --provider chatterbox -o /tmp/chatterbox-test.mp3 "Testing MP3 format export."
+    uv run gensay --provider chatterbox -o /tmp/chatterbox-test.mp3 "Testing MP3 format export."
     ls -la /tmp/chatterbox-test.mp3
     echo ""
     echo "5. Testing longer text with chunking..."
-    gensay --provider chatterbox "This is a longer piece of text that will test the chunking functionality. The text chunker should split this into appropriate segments for the TTS model to process efficiently."
+    uv run gensay --provider chatterbox "This is a longer piece of text that will test the chunking functionality. The text chunker should split this into appropriate segments for the TTS model to process efficiently."
     echo ""
     echo "=== All Chatterbox tests passed ==="
 
@@ -149,14 +183,6 @@ pre-commit: format lint test
 
 quick-test:
     uvx pytest tests/test_providers.py::test_mock_provider_speak -v
-
-# Generate API documentation (requires pdoc)
-docs:
-    .venv/bin/pdoc -o docs/api src/gensay
-
-# Serve API documentation locally
-docs-serve:
-    .venv/bin/pdoc -p 8080 src/gensay
 
 # Test installation across Python versions (3.11-3.14)
 test-matrix:
