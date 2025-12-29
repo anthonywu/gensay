@@ -76,7 +76,14 @@ just setup
 Some providers require additional dependencies:
 
 ```bash
-# ElevenLabs provider (requires PortAudio, see below)
+# Chatterbox provider (local AI TTS, ~2GB PyTorch dependencies)
+uv tool install 'gensay[chatterbox]' \
+  --with git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
+# or with pip
+pip install 'gensay[chatterbox]'
+pip install git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
+
+# ElevenLabs provider (requires PortAudio, see above)
 pip install 'gensay[elevenlabs]'
 ```
 
