@@ -190,7 +190,9 @@ gensay --no-cache "Text" # Disable cache for this run
 
 #### REPL Mode
 
-Start an interactive session where the provider is initialized once and reused for each prompt. This avoids the overhead of re-initializing the provider (especially useful for Chatterbox which loads ML models).
+Start an interactive session where the provider is initialized once and reused for each prompt. This avoids the overhead of re-initializing the provider.
+
+> **Tip:** Chatterbox is best used in `--repl` or `--listen` mode so the ML model stays loaded between inferences, avoiding the slow model loading on each invocation.
 
 ```bash
 # Start REPL mode
