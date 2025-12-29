@@ -20,6 +20,8 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 - **Progress Tracking**: Built-in progress bars with tqdm and customizable callbacks
 - **Multiple Audio Formats**: Support for AIFF, WAV, M4A, MP3, CAF, FLAC, AAC, OGG
 - **Background Pre-caching**: Queue and cache audio chunks in the background (Chatterbox only)
+- **Interactive REPL Mode**: Start an interactive session with provider initialized once for repeated use
+- **Named Pipe Listener**: Listen on a FIFO for text input from other processes
 
 ## Table of Contents
 
@@ -183,6 +185,48 @@ gensay --cache-stats     # Show cache statistics
 gensay --clear-cache     # Clear all cached audio
 gensay --no-cache "Text" # Disable cache for this run
 ```
+
+### Interactive Modes
+
+#### REPL Mode
+
+Start an interactive session where the provider is initialized once and reused for each prompt. This avoids the overhead of re-initializing the provider (especially useful for Chatterbox which loads ML models).
+
+```bash
+# Start REPL mode
+gensay --repl
+
+# With a specific provider and voice
+gensay --provider openai -v nova --repl
+```
+
+In REPL mode:
+- Type text and press Enter to speak it
+- Type `exit` or `quit` to exit
+- Press Ctrl+C or Ctrl+D to exit
+
+#### Named Pipe (FIFO) Listener
+
+Listen on a named pipe for text input, allowing other processes to send text to be spoken. Useful for integrating TTS into scripts or other applications.
+
+```bash
+# Start listening on default pipe (/tmp/gensay.pipe)
+gensay --listen
+
+# Use a custom pipe path
+gensay --listen /tmp/my-tts.pipe
+
+# With a specific provider
+gensay --provider polly -v Joanna --listen
+```
+
+From another terminal or script, send text to the pipe:
+
+```bash
+echo "Hello from another process" > /tmp/gensay.pipe
+```
+
+The listener runs until interrupted with Ctrl+C. The named pipe is created automatically if it doesn't exist.
 
 ## Python API
 
