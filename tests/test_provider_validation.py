@@ -89,8 +89,28 @@ def _chatterbox_available() -> bool:
         return False
 
 
+def _ffmpeg_libs_configured() -> bool:
+    """Check if FFmpeg libraries are properly configured for TorchCodec."""
+    import os
+
+    if sys.platform != "darwin":
+        return True  # Only macOS needs DYLD_LIBRARY_PATH
+
+    from gensay.providers.chatterbox import _find_ffmpeg_lib_path
+
+    lib_path = _find_ffmpeg_lib_path()
+    if not lib_path:
+        return True  # No FFmpeg found, let torchcodec handle it
+
+    current = os.environ.get("DYLD_LIBRARY_PATH", "")
+    return lib_path in current.split(":")
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="Chatterbox only tested on macOS")
 @pytest.mark.skipif(not _chatterbox_available(), reason="Chatterbox library not installed")
+@pytest.mark.skipif(
+    not _ffmpeg_libs_configured(), reason="DYLD_LIBRARY_PATH not configured for FFmpeg"
+)
 def test_chatterbox_provider(artifacts_dir):
     """Test Chatterbox provider with available voices."""
     config = TTSConfig(cache_enabled=False)

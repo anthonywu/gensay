@@ -28,8 +28,9 @@ def _create_mock_ta():
     """Create a mock torchaudio module that writes real WAV bytes."""
     mock_ta = MagicMock()
 
-    def fake_save(buffer, wav, sr, format):
-        buffer.write(_make_fake_wav_bytes(0.1, sr))
+    def fake_save(path, wav, sr):
+        # Write WAV bytes to the temp file path
+        Path(path).write_bytes(_make_fake_wav_bytes(0.1, sr))
 
     mock_ta.save.side_effect = fake_save
     return mock_ta
@@ -256,10 +257,32 @@ def _chatterbox_available() -> bool:
         return False
 
 
+def _ffmpeg_libs_configured() -> bool:
+    """Check if FFmpeg libraries are properly configured for TorchCodec."""
+    import os
+    import platform
+
+    if platform.system() != "Darwin":
+        return True  # Only macOS needs DYLD_LIBRARY_PATH
+
+    from gensay.providers.chatterbox import _find_ffmpeg_lib_path
+
+    lib_path = _find_ffmpeg_lib_path()
+    if not lib_path:
+        return True  # No FFmpeg found, let torchcodec handle it
+
+    current = os.environ.get("DYLD_LIBRARY_PATH", "")
+    return lib_path in current.split(":")
+
+
 # Integration tests - only run when chatterbox is actually available
 @pytest.mark.skipif(
     not _chatterbox_available(),
     reason="Chatterbox library not installed",
+)
+@pytest.mark.skipif(
+    not _ffmpeg_libs_configured(),
+    reason="DYLD_LIBRARY_PATH not configured for FFmpeg",
 )
 class TestChatterboxProviderIntegration:
     """Integration tests for Chatterbox provider (requires actual library)."""

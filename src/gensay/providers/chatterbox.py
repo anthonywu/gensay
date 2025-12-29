@@ -57,14 +57,18 @@ def _find_ffmpeg_lib_path() -> str | None:
     return None
 
 
+class FFmpegLibraryError(RuntimeError):
+    """Raised when FFmpeg libraries are not properly configured."""
+
+    pass
+
+
 def _check_ffmpeg_libs() -> None:
     """Check that FFmpeg libs are available for TorchCodec.
 
     On macOS, DYLD_LIBRARY_PATH must be set before the process starts.
     If not set, detect the path and tell the user how to fix it.
     """
-    import sys
-
     if platform.system() != "Darwin":
         return
 
@@ -76,18 +80,12 @@ def _check_ffmpeg_libs() -> None:
     if lib_path in current.split(":"):
         return  # Already set correctly
 
-    print(
-        f"Error: FFmpeg libraries not in DYLD_LIBRARY_PATH. gensay auto-detected a possible fix for you.\n"
-        f"Chatterbox dependency TorchCodec requires FFmpeg libs to be available at process start.\n\n"
+    raise FFmpegLibraryError(
+        f"FFmpeg libraries not in DYLD_LIBRARY_PATH.\n"
+        f"TorchCodec requires FFmpeg libs to be available at process start.\n\n"
         f"Run this before starting gensay, or persist in your shell profile:\n\n"
-        f'  export DYLD_LIBRARY_PATH="{lib_path}:$DYLD_LIBRARY_PATH"\n',
-        file=sys.stderr,
+        f'  export DYLD_LIBRARY_PATH="{lib_path}:$DYLD_LIBRARY_PATH"'
     )
-    sys.exit(1)
-
-
-# Run at module import time, before any torch/torchaudio imports can happen
-_check_ffmpeg_libs()
 
 
 class ChatterboxProvider(TTSProvider):
@@ -116,6 +114,9 @@ class ChatterboxProvider(TTSProvider):
         """Load ChatterboxTurboTTS model (lazy loading)."""
         if self._model_loaded:
             return
+
+        # Check FFmpeg libs before importing torchaudio
+        _check_ffmpeg_libs()
 
         try:
             import torchaudio as ta
