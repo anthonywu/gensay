@@ -16,8 +16,9 @@ default:
 
 # Setup development environment
 setup:
-    uv sync --extra chatterbox --extra elevenlabs
-    uv pip install git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
+    test -d .venv || uv venv
+    (uv pip tree | grep chatterbox) || uv pip install git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
+    uv pip install --editable '.[chatterbox,elevenlabs]'
 
 # Run all tests
 test:

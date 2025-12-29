@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import os
 import platform
 import queue
 import shutil
@@ -16,6 +17,54 @@ from tqdm import tqdm
 from ..cache import TTSCache
 from ..text_chunker import ChunkingConfig, TextChunker
 from .base import AudioFormat, TTSConfig, TTSProvider
+
+
+def _ensure_ffmpeg_libs() -> None:
+    """Ensure FFmpeg shared libraries are discoverable for TorchCodec.
+
+    On macOS with Nix-installed FFmpeg, the libraries are in a separate store path
+    that isn't in the default dynamic library search path. This function auto-detects
+    the FFmpeg lib path and adds it to DYLD_LIBRARY_PATH.
+    """
+    if platform.system() != "Darwin":
+        return
+
+    # Check if ffmpeg is available
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        return
+
+    # Try Nix-specific detection first (split outputs: bin and lib are separate)
+    try:
+        result = subprocess.run(
+            ["nix-store", "-qR", ffmpeg_path],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if "ffmpeg" in line and line.endswith("-lib"):
+                    lib_path = f"{line}/lib"
+                    if Path(lib_path).exists():
+                        _prepend_dyld_path(lib_path)
+                        return
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # Fallback: check relative to ffmpeg binary (Homebrew-style)
+    # realpath resolves symlinks to find the actual installation prefix
+    ffmpeg_real = Path(ffmpeg_path).resolve()
+    lib_dir = ffmpeg_real.parent.parent / "lib"
+    if lib_dir.exists() and any(lib_dir.glob("libav*.dylib")):
+        _prepend_dyld_path(str(lib_dir))
+
+
+def _prepend_dyld_path(lib_path: str) -> None:
+    """Prepend a path to DYLD_LIBRARY_PATH if not already present."""
+    current = os.environ.get("DYLD_LIBRARY_PATH", "")
+    if lib_path not in current.split(":"):
+        os.environ["DYLD_LIBRARY_PATH"] = f"{lib_path}:{current}" if current else lib_path
 
 
 class ChatterboxProvider(TTSProvider):
@@ -45,6 +94,9 @@ class ChatterboxProvider(TTSProvider):
         if self._model_loaded:
             return
 
+        # Ensure FFmpeg libs are discoverable before importing torchaudio
+        _ensure_ffmpeg_libs()
+
         try:
             import torchaudio as ta
             from chatterbox.tts_turbo import ChatterboxTurboTTS
@@ -56,8 +108,8 @@ class ChatterboxProvider(TTSProvider):
             self._model_loaded = True
         except ImportError as e:
             raise ImportError(
-                "Chatterbox dependencies not found. Install with: [uv tool | pip] "
-                "install 'gensay[chatterbox]' "
+                "Chatterbox dependencies not found. Install with: "
+                "uv tool install 'gensay[chatterbox]' "
                 "--with git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates"
             ) from e
 
@@ -229,9 +281,17 @@ class ChatterboxProvider(TTSProvider):
             raise RuntimeError(f"ChatterboxTurboTTS.generate returned None for text: {text!r}")
 
         # Convert tensor to WAV bytes for caching/playback
-        buffer = io.BytesIO()
-        self._ta.save(buffer, wav, self.sample_rate, format="wav")
-        return buffer.getvalue()
+        # TorchCodec backend can't write to BytesIO (needs file extension),
+        # so we use a temp file
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            temp_path = f.name
+        try:
+            self._ta.save(temp_path, wav, self.sample_rate)
+            return Path(temp_path).read_bytes()
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
 
     def _play_audio(self, audio_data: bytes) -> None:
         """Play audio data using system audio player."""
