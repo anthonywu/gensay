@@ -235,6 +235,8 @@ def handle_cache_operations(args) -> bool:
             print(f"  Enabled: {stats['enabled']}")
             print(f"  Items: {stats['items']}")
             print(f"  Size: {stats['size_mb']:.2f} MB / {stats['max_size_mb']} MB")
+            print(f"  Hits: {stats['hits']}")
+            print(f"  Misses: {stats['misses']}")
             print(f"  Directory: {stats['cache_dir']}")
 
         return True

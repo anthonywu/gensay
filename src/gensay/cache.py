@@ -35,6 +35,7 @@ class TTSCache:
                 eviction_policy="least-recently-used",
                 cull_limit=min(100, max_items // 10),
             )
+            self._cache.stats(enable=True)
 
     def get(self, key: str) -> bytes | None:
         """Get audio data from cache."""
@@ -67,7 +68,11 @@ class TTSCache:
                 "max_size_mb": self.max_size_mb,
                 "max_items": self.max_items,
                 "cache_dir": str(self.cache_dir),
+                "hits": 0,
+                "misses": 0,
             }
+
+        hits, misses = self._cache.stats()
 
         return {
             "enabled": self.enabled,
@@ -76,4 +81,6 @@ class TTSCache:
             "max_size_mb": self.max_size_mb,
             "max_items": self.max_items,
             "cache_dir": str(self.cache_dir),
+            "hits": hits,
+            "misses": misses,
         }

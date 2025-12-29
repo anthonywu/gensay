@@ -1,6 +1,11 @@
 """gensay - A multi-provider TTS tool compatible with macOS say command."""
 
+import os
 import warnings
+
+# Disable tokenizers parallelism to avoid fork warnings, unless user set it
+if "TOKENIZERS_PARALLELISM" not in os.environ:
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Suppress pkg_resources deprecation warning from perth package
 warnings.filterwarnings(
