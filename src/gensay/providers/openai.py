@@ -23,7 +23,6 @@ class OpenAIProvider(TTSProvider):
     VOICES = [
         {"id": "alloy", "name": "Alloy", "description": "Neutral, balanced"},
         {"id": "ash", "name": "Ash", "description": "Warm, conversational"},
-        {"id": "ballad", "name": "Ballad", "description": "Expressive, dramatic"},
         {"id": "coral", "name": "Coral", "description": "Clear, professional"},
         {"id": "echo", "name": "Echo", "description": "Soft, gentle"},
         {"id": "fable", "name": "Fable", "description": "Expressive, British accent"},

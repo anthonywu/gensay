@@ -33,9 +33,7 @@ def has_aws_credentials() -> bool:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
     # Fallback: check env vars
-    if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"):
-        return True
-    return False
+    return bool(os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"))
 
 
 @pytest.mark.skipif(not has_aws_credentials(), reason="AWS credentials not configured")

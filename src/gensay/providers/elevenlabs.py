@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from elevenlabs import VoiceSettings, play, save
-    from elevenlabs.client import ElevenLabs
+    from elevenlabs import ElevenLabs, VoiceSettings
+    from elevenlabs.play import play, save
 
     ELEVENLABS_AVAILABLE = True
 except ImportError:
@@ -49,11 +49,13 @@ class ElevenLabsProvider(TTSProvider):
             )
 
         self.client = ElevenLabs(api_key=api_key)
-        self._voice_cache = None  # Cache for voice list
+        self._voice_cache: list[dict[str, Any]] | None = None
+        self._voice_id_map: dict[str, str] | None = None  # name -> voice_id
 
     def speak(self, text: str, voice: str | None = None, rate: int | None = None) -> None:
         """Speak text using ElevenLabs TTS."""
-        voice = voice or self.config.voice or "Rachel"  # Default ElevenLabs voice
+        voice_name = voice or self.config.voice or "Sarah"
+        voice_id = self._resolve_voice_id(voice_name)
 
         # Get voice settings
         voice_settings = self._get_voice_settings(rate)
@@ -61,12 +63,12 @@ class ElevenLabsProvider(TTSProvider):
         try:
             self.update_progress(0.0, "Generating speech...")
 
-            # Generate audio
-            audio = self.client.generate(
+            # Generate audio using text_to_speech.convert (v2 API)
+            audio = self.client.text_to_speech.convert(
+                voice_id=voice_id,
                 text=text,
-                voice=voice,
                 voice_settings=voice_settings,
-                model="eleven_monolingual_v1",  # You can make this configurable
+                model_id="eleven_monolingual_v1",
             )
 
             self.update_progress(0.5, "Playing audio...")
@@ -89,7 +91,8 @@ class ElevenLabsProvider(TTSProvider):
     ) -> Path:
         """Save speech to file using ElevenLabs TTS."""
         output_path = Path(output_path)
-        voice = voice or self.config.voice or "Rachel"
+        voice_name = voice or self.config.voice or "Sarah"
+        voice_id = self._resolve_voice_id(voice_name)
         format = format or self.config.format or AudioFormat.from_extension(output_path)
 
         # Get voice settings
@@ -101,12 +104,12 @@ class ElevenLabsProvider(TTSProvider):
         try:
             self.update_progress(0.0, "Generating speech...")
 
-            # Generate audio with specific format
-            audio = self.client.generate(
+            # Generate audio using text_to_speech.convert (v2 API)
+            audio = self.client.text_to_speech.convert(
+                voice_id=voice_id,
                 text=text,
-                voice=voice,
                 voice_settings=voice_settings,
-                model="eleven_monolingual_v1",
+                model_id="eleven_monolingual_v1",
                 output_format=el_format,
             )
 
@@ -129,6 +132,7 @@ class ElevenLabsProvider(TTSProvider):
                 # Get all available voices using the client
                 response = self.client.voices.get_all()
                 self._voice_cache = []
+                self._voice_id_map = {}
 
                 for voice in response.voices:
                     voice_data = {
@@ -137,6 +141,13 @@ class ElevenLabsProvider(TTSProvider):
                         "language": "en-US",  # ElevenLabs voices are multilingual
                         "category": voice.category,
                     }
+
+                    # Build name -> voice_id map (case-insensitive)
+                    # Support both full name and short name (before " - ")
+                    self._voice_id_map[voice.name.lower()] = voice.voice_id
+                    if " - " in voice.name:
+                        short_name = voice.name.split(" - ")[0].lower()
+                        self._voice_id_map[short_name] = voice.voice_id
 
                     # Add labels if available
                     if voice.labels:
@@ -157,6 +168,22 @@ class ElevenLabsProvider(TTSProvider):
 
         return self._voice_cache
 
+    def _resolve_voice_id(self, voice: str) -> str:
+        """Resolve a voice name or ID to a voice ID."""
+        # If it looks like a voice ID (21 chars), use it directly
+        if len(voice) == 21 and voice.isalnum():
+            return voice
+
+        # Populate voice cache if needed
+        if self._voice_id_map is None:
+            self.list_voices()
+
+        # Look up by name (case-insensitive)
+        if voice_id := self._voice_id_map.get(voice.lower()):
+            return voice_id
+
+        raise ValueError(f"Voice '{voice}' not found. Use list_voices() to see available voices.")
+
     def get_supported_formats(self) -> list[AudioFormat]:
         """Get supported audio formats."""
         # ElevenLabs primarily supports MP3 and PCM
@@ -172,19 +199,18 @@ class ElevenLabsProvider(TTSProvider):
 
     def _get_voice_settings(self, rate: int | None = None) -> VoiceSettings:
         """Get voice settings with optional rate adjustment."""
-        # ElevenLabs doesn't directly support WPM, but we can adjust stability/speed
-        # Higher stability = slower, more careful speech
-        # Lower stability = faster, more expressive speech
-
-        # Map WPM to stability (inverse relationship)
-        # Normal rate ~150 WPM = 0.5 stability
-        # Fast rate ~200 WPM = 0.3 stability
-        # Slow rate ~100 WPM = 0.7 stability
-        stability = max(0.0, min(1.0, 1.0 - (rate - 100) / 200)) if rate else 0.5
+        # ElevenLabs v2 supports speed parameter (0.7-1.2, 1.0 is normal)
+        # Map WPM rate to speed multiplier:
+        # Normal rate ~150 WPM = 1.0 speed
+        # Fast rate ~180 WPM = 1.2 speed (max)
+        # Slow rate ~105 WPM = 0.7 speed (min)
+        speed = (rate / 150.0) if rate else 1.0
+        speed = max(0.7, min(1.2, speed))  # Clamp to API-allowed range
 
         return VoiceSettings(
-            stability=stability,
-            similarity_boost=0.75,  # Default similarity
-            style=0.0,  # Default style
+            stability=0.5,
+            similarity_boost=0.75,
+            style=0.0,
             use_speaker_boost=True,
+            speed=speed,
         )

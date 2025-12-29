@@ -90,8 +90,8 @@ class TestElevenLabsProvider:
         config = TTSConfig()
         provider = ElevenLabsProvider(config)
 
-        output_path = ARTIFACTS_DIR / "elevenlabs_test_aria_voice.mp3"
-        result = provider.save_to_file("This is the Aria voice.", output_path, voice="Aria")
+        output_path = ARTIFACTS_DIR / "elevenlabs_test_alice_voice.mp3"
+        result = provider.save_to_file("This is the Alice voice.", output_path, voice="Alice")
 
         assert result == output_path
         assert output_path.exists()
@@ -121,7 +121,7 @@ class TestElevenLabsProviderMocked:
             ElevenLabsProvider(config)
 
     @patch.dict(os.environ, {"ELEVENLABS_API_KEY": "test-key"})
-    @patch("elevenlabs.client.ElevenLabs")
+    @patch("gensay.providers.elevenlabs.ElevenLabs")
     def test_voice_settings_rate_mapping(self, mock_client):
         """Test rate mapping to voice settings."""
         config = TTSConfig()
@@ -132,9 +132,11 @@ class TestElevenLabsProviderMocked:
         settings_normal = provider._get_voice_settings(150)
         settings_fast = provider._get_voice_settings(200)
 
-        # Slower rate should have higher stability
-        assert settings_slow.stability is not None
-        assert settings_normal.stability is not None
-        assert settings_fast.stability is not None
-        assert settings_slow.stability > settings_normal.stability
-        assert settings_normal.stability > settings_fast.stability
+        # ElevenLabs v2 uses speed parameter (slower rate = lower speed)
+        assert settings_slow.speed is not None
+        assert settings_normal.speed is not None
+        assert settings_fast.speed is not None
+        assert settings_slow.speed < settings_normal.speed
+        assert settings_normal.speed < settings_fast.speed
+        # Check specific values: 100/150 = 0.67, 150/150 = 1.0, 200/150 = 1.33
+        assert abs(settings_normal.speed - 1.0) < 0.01
