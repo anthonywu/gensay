@@ -16,13 +16,7 @@ default:
 
 # Setup development environment
 setup:
-    uv venv
-    uv pip install -e ".[dev]"
-    @echo "✓ Development environment ready"
-
-# Install the package in development mode
-install:
-    uv pip install -e .
+    uv sync
 
 # Run all tests
 test:
@@ -35,6 +29,11 @@ test-cov:
 # Run specific test file or function
 test-specific TEST:
     uv run pytest -v {{TEST}}
+
+check-cloud-auth:
+    @(aws sts get-caller-identity --output json | jq -r .Arn) && echo "AWS STS ready" || echo "Hint: aws login --region us-west-2 --remote"
+    @test -n "$OPENAI_API_KEY" && echo "OpenAI ready" || echo "OPENAI_API_KEY missing"
+    @test -n "${ELEVENLABS_API_KEY:-}" && echo "ElevenLabs ready" || echo "ELEVENLABS_API_KEY missing"
 
 # Run linter
 lint:
@@ -183,14 +182,6 @@ pre-commit: format lint test
 
 quick-test:
     uvx pytest tests/test_providers.py::test_mock_provider_speak -v
-
-# Generate API documentation (requires pdoc)
-docs:
-    .venv/bin/pdoc -o docs/api src/gensay
-
-# Serve API documentation locally
-docs-serve:
-    .venv/bin/pdoc -p 8080 src/gensay
 
 # Test installation across Python versions (3.11-3.14)
 test-matrix:

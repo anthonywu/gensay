@@ -27,6 +27,7 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 - [Quick Start](#quick-start)
 - [Command Line Usage](#command-line-usage)
 - [Python API](#python-api)
+- [Provider Configurations](#provider-configurations)
 - [Advanced Features](#advanced-features)
 - [Development](#development)
 - [License](#license)
@@ -37,6 +38,26 @@ It's 2025, use [uv](https://github.com/astral-sh/uv)
 
 `gensay` is intended to be used as a CLI tool that is a drop-in replacement to the macOS `say` CLI.
 
+### Required System Dependencies
+
+**PortAudio is required** for installation. The `pyaudio` dependency needs the PortAudio C library to compile successfully.
+
+**Homebrew (macOS):**
+
+```bash
+brew install portaudio
+```
+
+**Nix:**
+
+```bash
+nix-env -iA nixpkgs.portaudio
+```
+
+### Installation
+
+After installing PortAudio, you can install gensay:
+
 ```console
 # Install as a tool
 uv tool install gensay
@@ -44,10 +65,20 @@ uv tool install gensay
 # Or add to your project
 uv add gensay
 
-# From source
+# From source (with automatic PortAudio path configuration)
 git clone https://github.com/anthonywu/gensay
 cd gensay
-uv sync
+just setup
+```
+
+For source installation, `just setup` automatically configures the PortAudio include/library paths for both Nix and Homebrew installations.
+
+Or manually set the paths before installing:
+
+```bash
+export C_INCLUDE_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/include:$C_INCLUDE_PATH"
+export LIBRARY_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/lib:$LIBRARY_PATH"
+uv pip install -e .
 ```
 
 ## Quick Start
@@ -248,33 +279,33 @@ OpenAI offers two models via `config.extra['model']`:
 
 ### Amazon Polly
 
+**Option A - Environment variables:**
+
 1. Sign in to [AWS Console](https://console.aws.amazon.com/)
 2. Go to **IAM** → **Users** → **Create user**
 3. Attach the `AmazonPollyReadOnlyAccess` policy
 4. Create access keys under **Security credentials** → **Access keys**
 5. Configure credentials (choose one method):
 
-   **Option A - Environment variables:**
+```bash
+export AWS_ACCESS_KEY_ID="AKIA..."
+export AWS_SECRET_ACCESS_KEY="..."
+export AWS_DEFAULT_REGION="us-west-2"
+```
 
-   ```bash
-   export AWS_ACCESS_KEY_ID="AKIA..."
-   export AWS_SECRET_ACCESS_KEY="..."
-   export AWS_DEFAULT_REGION="us-east-1"
-   ```
+**Option B - AWS CLI v2:**
 
-   **Option B - AWS credentials file** (`~/.aws/credentials`):
+This easy lets you [sign in through the AWS Command Line Interface](https://docs.aws.amazon.com/signin/latest/userguide/command-line-sign-in.html)
 
-   ```ini
-   [default]
-   aws_access_key_id = AKIA...
-   aws_secret_access_key = ...
-   ```
+```bash
+export AWS_DEFAULT_REGION=us-west-2
+# on your desktop with a browser
+aws login --region
+# in an env without a browser
+aws login --region --remote
+```
 
-   **Option C - AWS CLI:**
-
-   ```bash
-   aws configure
-   ```
+#### Polly Usage
 
 ```bash
 # List Polly voices (60+ voices in many languages)
@@ -291,37 +322,6 @@ Polly supports multiple engines via `config.extra['engine']`:
 
 - `neural` (default): Higher quality, natural-sounding
 - `standard`: Lower cost, available for all voices
-
-### PortAudio Setup (for pyaudio)
-
-The `pyaudio` dependency requires the PortAudio C library to be installed at the system level.
-
-**Homebrew (macOS):**
-
-```bash
-brew install portaudio
-uv pip install -e .
-```
-
-**Nix:**
-
-```bash
-nix-env -iA nixpkgs.portaudio
-```
-
-Then use `just setup` which automatically configures the include/library paths:
-
-```bash
-just setup
-```
-
-Or manually set the paths before installing:
-
-```bash
-export C_INCLUDE_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/include:$C_INCLUDE_PATH"
-export LIBRARY_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/lib:$LIBRARY_PATH"
-uv pip install -e .
-```
 
 ## Advanced Features
 
@@ -477,9 +477,6 @@ just test-cov
 # Run specific test
 just test-specific tests/test_providers.py::test_mock_provider_speak
 
-# Watch tests - not available in current justfile
-# Install pytest-watch and run: uv run ptw tests -- -v
-
 # Quick test (mock provider only)
 just quick-test
 ```
@@ -526,8 +523,6 @@ just cache-clear
 ```bash
 # Run example script
 just demo
-
-# Create a new provider stub - not available in current justfile
 
 # Clean build artifacts
 just clean
