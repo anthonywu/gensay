@@ -19,20 +19,17 @@ from ..text_chunker import ChunkingConfig, TextChunker
 from .base import AudioFormat, TTSConfig, TTSProvider
 
 
-def _ensure_ffmpeg_libs() -> None:
-    """Ensure FFmpeg shared libraries are discoverable for TorchCodec.
+def _find_ffmpeg_lib_path() -> str | None:
+    """Find FFmpeg library path on the system.
 
-    On macOS with Nix-installed FFmpeg, the libraries are in a separate store path
-    that isn't in the default dynamic library search path. This function auto-detects
-    the FFmpeg lib path and adds it to DYLD_LIBRARY_PATH.
+    Returns the path to FFmpeg's lib directory, or None if not found.
     """
     if platform.system() != "Darwin":
-        return
+        return None
 
-    # Check if ffmpeg is available
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path:
-        return
+        return None
 
     # Try Nix-specific detection first (split outputs: bin and lib are separate)
     try:
@@ -47,24 +44,50 @@ def _ensure_ffmpeg_libs() -> None:
                 if "ffmpeg" in line and line.endswith("-lib"):
                     lib_path = f"{line}/lib"
                     if Path(lib_path).exists():
-                        _prepend_dyld_path(lib_path)
-                        return
+                        return lib_path
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
     # Fallback: check relative to ffmpeg binary (Homebrew-style)
-    # realpath resolves symlinks to find the actual installation prefix
     ffmpeg_real = Path(ffmpeg_path).resolve()
     lib_dir = ffmpeg_real.parent.parent / "lib"
     if lib_dir.exists() and any(lib_dir.glob("libav*.dylib")):
-        _prepend_dyld_path(str(lib_dir))
+        return str(lib_dir)
+
+    return None
 
 
-def _prepend_dyld_path(lib_path: str) -> None:
-    """Prepend a path to DYLD_LIBRARY_PATH if not already present."""
+def _check_ffmpeg_libs() -> None:
+    """Check that FFmpeg libs are available for TorchCodec.
+
+    On macOS, DYLD_LIBRARY_PATH must be set before the process starts.
+    If not set, detect the path and tell the user how to fix it.
+    """
+    import sys
+
+    if platform.system() != "Darwin":
+        return
+
+    lib_path = _find_ffmpeg_lib_path()
+    if not lib_path:
+        return  # No FFmpeg found, let torchcodec handle the error
+
     current = os.environ.get("DYLD_LIBRARY_PATH", "")
-    if lib_path not in current.split(":"):
-        os.environ["DYLD_LIBRARY_PATH"] = f"{lib_path}:{current}" if current else lib_path
+    if lib_path in current.split(":"):
+        return  # Already set correctly
+
+    print(
+        f"Error: FFmpeg libraries not in DYLD_LIBRARY_PATH. gensay auto-detected a possible fix for you.\n"
+        f"Chatterbox dependency TorchCodec requires FFmpeg libs to be available at process start.\n\n"
+        f"Run this before starting gensay, or persist in your shell profile:\n\n"
+        f'  export DYLD_LIBRARY_PATH="{lib_path}:$DYLD_LIBRARY_PATH"\n',
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+# Run at module import time, before any torch/torchaudio imports can happen
+_check_ffmpeg_libs()
 
 
 class ChatterboxProvider(TTSProvider):
@@ -93,9 +116,6 @@ class ChatterboxProvider(TTSProvider):
         """Load ChatterboxTurboTTS model (lazy loading)."""
         if self._model_loaded:
             return
-
-        # Ensure FFmpeg libs are discoverable before importing torchaudio
-        _ensure_ffmpeg_libs()
 
         try:
             import torchaudio as ta
