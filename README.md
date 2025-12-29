@@ -38,9 +38,11 @@ It's 2025, use [uv](https://github.com/astral-sh/uv)
 
 `gensay` is intended to be used as a CLI tool that is a drop-in replacement to the macOS `say` CLI.
 
-### Required System Dependencies
+### System Dependencies (ElevenLabs provider only)
 
-**PortAudio is required** for installation. The `pyaudio` dependency needs the PortAudio C library to compile successfully.
+**PortAudio is required** if you plan to use the ElevenLabs provider. The `pyaudio` dependency needs the PortAudio C library to compile successfully.
+
+Other providers (macOS, OpenAI, Amazon Polly, Chatterbox) do not require PortAudio.
 
 **Homebrew (macOS):**
 
@@ -56,8 +58,6 @@ nix-env -iA nixpkgs.portaudio
 
 ### Installation
 
-After installing PortAudio, you can install gensay:
-
 ```console
 # Install as a tool
 uv tool install gensay
@@ -70,6 +70,20 @@ git clone https://github.com/anthonywu/gensay
 cd gensay
 just setup
 ```
+
+### Optional Provider Dependencies
+
+Some providers require additional dependencies:
+
+```bash
+# ElevenLabs provider (requires PortAudio, see below)
+pip install 'gensay[elevenlabs]'
+```
+
+**Installation Help:**
+
+- [PyAudio documentation](https://pypi.org/project/PyAudio/) - For PortAudio/PyAudio installation issues
+- [ElevenLabs Python library docs](https://elevenlabs.io/docs/agents-platform/libraries/python) - Official ElevenLabs Python documentation
 
 For source installation, `just setup` automatically configures the PortAudio include/library paths for both Nix and Homebrew installations.
 
@@ -236,8 +250,12 @@ chunks = chunker.chunk_text(document)
 
 ### ElevenLabs
 
-1. Get an API key from [ElevenLabs](https://elevenlabs.io)
-2. Set the environment variable:
+1. Install the optional dependency (requires PortAudio):
+   ```bash
+   pip install 'gensay[elevenlabs]'
+   ```
+2. Get an API key from [ElevenLabs](https://elevenlabs.io)
+3. Set the environment variable:
    ```bash
    export ELEVENLABS_API_KEY="your-api-key"
    ```

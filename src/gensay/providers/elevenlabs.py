@@ -36,8 +36,8 @@ class ElevenLabsProvider(TTSProvider):
 
         if not ELEVENLABS_AVAILABLE:
             raise ImportError(
-                "ElevenLabs library not found. Please install it with: "
-                "pip install 'elevenlabs[pyaudio]'"
+                "ElevenLabs provider requires additional dependencies. "
+                "Install with: pip install 'gensay[elevenlabs]'"
             )
 
         # Get API key from environment or config
