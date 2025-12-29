@@ -23,8 +23,7 @@ from gensay.providers import (
     TTSConfig,
 )
 
-# Define test text and expected file extensions
-TEST_TEXT = "Hello! This is a test of the text-to-speech system."
+# Define test artifacts directory
 TEST_ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
 
 
@@ -50,8 +49,10 @@ def test_macos_provider(artifacts_dir):
 
     for voice in voices:
         voice_id = voice["id"]
+        voice_name = voice.get("name", voice_id)
         output_path = provider_dir / f"{voice_id}.m4a"
-        provider.save_to_file(TEST_TEXT, output_path, voice=voice_id)
+        text = f"Hi this is {voice_name} from macOS"
+        provider.save_to_file(text, output_path, voice=voice_id)
 
         assert output_path.exists(), f"Expected file {output_path} to be created"
         assert output_path.stat().st_size > 1000, "File should be non-empty"
@@ -69,8 +70,10 @@ def test_mock_provider(artifacts_dir):
 
     for voice in voices:
         voice_id = voice["id"]
+        voice_name = voice.get("name", voice_id)
         output_path = provider_dir / f"{voice_id}.m4a"
-        provider.save_to_file(TEST_TEXT, output_path, voice=voice_id)
+        text = f"Hi this is {voice_name} from Mock"
+        provider.save_to_file(text, output_path, voice=voice_id)
 
         assert output_path.exists(), f"Expected file {output_path} to be created"
         assert output_path.stat().st_size > 0, "File should be non-empty"
@@ -89,8 +92,10 @@ def test_chatterbox_provider(artifacts_dir):
 
     for voice in voices:
         voice_id = voice["id"]
+        voice_name = voice.get("name", voice_id)
         output_path = provider_dir / f"{voice_id}.m4a"
-        provider.save_to_file(TEST_TEXT, output_path, voice=voice_id)
+        text = f"Hi this is {voice_name} from Chatterbox"
+        provider.save_to_file(text, output_path, voice=voice_id)
 
         assert output_path.exists(), f"Expected file {output_path} to be created"
         assert output_path.stat().st_size > 1000, "File should be non-empty"
@@ -111,8 +116,10 @@ def test_openai_provider(artifacts_dir):
 
     for voice in voices:
         voice_id = voice["id"]
+        voice_name = voice.get("name", voice_id)
         output_path = provider_dir / f"{voice_id}.mp3"
-        provider.save_to_file(TEST_TEXT, output_path, voice=voice_id, format=AudioFormat.MP3)
+        text = f"Hi this is {voice_name} from OpenAI"
+        provider.save_to_file(text, output_path, voice=voice_id, format=AudioFormat.MP3)
 
         assert output_path.exists(), f"Expected file {output_path} to be created"
         assert output_path.stat().st_size > 1000, "File should be non-empty"
@@ -132,9 +139,11 @@ def test_elevenlabs_provider(artifacts_dir):
     provider_dir.mkdir(exist_ok=True)
 
     for voice in voices:
-        voice_name = voice["name"]
-        output_path = provider_dir / f"{voice_name.replace(' ', '_')}.mp3"
-        provider.save_to_file(TEST_TEXT, output_path, voice=voice_name, format=AudioFormat.MP3)
+        voice_id = voice["id"]
+        voice_name = voice.get("name", voice_id)
+        output_path = provider_dir / f"{voice_id}.mp3"
+        text = f"Hi this is {voice_name} from ElevenLabs"
+        provider.save_to_file(text, output_path, voice=voice_id, format=AudioFormat.MP3)
 
         assert output_path.exists(), f"Expected file {output_path} to be created"
         assert output_path.stat().st_size > 1000, "File should be non-empty"
@@ -160,8 +169,10 @@ def test_amazon_polly_provider(artifacts_dir):
 
     for voice in voices:
         voice_id = voice["id"]
+        voice_name = voice.get("name", voice_id)
         output_path = provider_dir / f"{voice_id}.mp3"
-        provider.save_to_file(TEST_TEXT, output_path, voice=voice_id, format=AudioFormat.MP3)
+        text = f"Hi this is {voice_name} from Amazon Polly"
+        provider.save_to_file(text, output_path, voice=voice_id, format=AudioFormat.MP3)
 
         assert output_path.exists(), f"Expected file {output_path} to be created"
         assert output_path.stat().st_size > 1000, "File should be non-empty"

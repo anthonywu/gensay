@@ -84,18 +84,16 @@ class OpenAIProvider(TTSProvider):
                 with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
                     temp_path = Path(f.name)
 
-                response = self.client.audio.speech.create(
+                with self.client.audio.speech.with_streaming_response.create(
                     model=self.model,
                     voice=voice,
                     input=text,
                     speed=speed,
                     response_format="mp3",
-                )
+                ) as response:
+                    response.stream_to_file(temp_path)
 
                 self.update_progress(0.5, "Playing audio...")
-
-                # Stream to file
-                response.stream_to_file(temp_path)
 
                 audio_data = temp_path.read_bytes()
                 self._cache.put(cache_key, audio_data)
@@ -148,18 +146,16 @@ class OpenAIProvider(TTSProvider):
             if audio_data is None:
                 self.update_progress(0.2, "Generating speech...")
 
-                response = self.client.audio.speech.create(
+                with self.client.audio.speech.with_streaming_response.create(
                     model=self.model,
                     voice=voice,
                     input=text,
                     speed=speed,
                     response_format=openai_format,
-                )
+                ) as response:
+                    response.stream_to_file(output_path)
 
                 self.update_progress(0.5, "Saving to file...")
-
-                # Stream to file and cache
-                response.stream_to_file(output_path)
                 audio_data = output_path.read_bytes()
                 self._cache.put(cache_key, audio_data)
             else:

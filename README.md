@@ -47,7 +47,7 @@ uv add gensay
 # From source
 git clone https://github.com/anthonywu/gensay
 cd gensay
-uv pip install -e .
+uv sync
 ```
 
 ## Quick Start
@@ -242,6 +242,7 @@ gensay --provider openai -o speech.mp3 "OpenAI TTS output"
 ```
 
 OpenAI offers two models via `config.extra['model']`:
+
 - `tts-1` (default): Faster, lower latency
 - `tts-1-hd`: Higher quality audio
 
@@ -254,6 +255,7 @@ OpenAI offers two models via `config.extra['model']`:
 5. Configure credentials (choose one method):
 
    **Option A - Environment variables:**
+
    ```bash
    export AWS_ACCESS_KEY_ID="AKIA..."
    export AWS_SECRET_ACCESS_KEY="..."
@@ -261,6 +263,7 @@ OpenAI offers two models via `config.extra['model']`:
    ```
 
    **Option B - AWS credentials file** (`~/.aws/credentials`):
+
    ```ini
    [default]
    aws_access_key_id = AKIA...
@@ -268,6 +271,7 @@ OpenAI offers two models via `config.extra['model']`:
    ```
 
    **Option C - AWS CLI:**
+
    ```bash
    aws configure
    ```
@@ -284,6 +288,7 @@ gensay --provider polly -o speech.mp3 "Polly TTS output"
 ```
 
 Polly supports multiple engines via `config.extra['engine']`:
+
 - `neural` (default): Higher quality, natural-sounding
 - `standard`: Lower cost, available for all voices
 
@@ -292,22 +297,26 @@ Polly supports multiple engines via `config.extra['engine']`:
 The `pyaudio` dependency requires the PortAudio C library to be installed at the system level.
 
 **Homebrew (macOS):**
+
 ```bash
 brew install portaudio
 uv pip install -e .
 ```
 
 **Nix:**
+
 ```bash
 nix-env -iA nixpkgs.portaudio
 ```
 
 Then use `just setup` which automatically configures the include/library paths:
+
 ```bash
 just setup
 ```
 
 Or manually set the paths before installing:
+
 ```bash
 export C_INCLUDE_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/include:$C_INCLUDE_PATH"
 export LIBRARY_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/lib:$LIBRARY_PATH"
@@ -423,6 +432,7 @@ just
 ### Common Development Commands
 
 #### Testing
+
 ```bash
 # Run all tests
 just test
@@ -441,6 +451,7 @@ just quick-test
 ```
 
 #### Code Quality
+
 ```bash
 # Run linter
 just lint
@@ -462,6 +473,7 @@ just pre-commit
 ```
 
 #### Running the CLI
+
 ```bash
 # Run with mock provider
 just run-mock "Hello, world!"
@@ -476,6 +488,7 @@ just cache-clear
 ```
 
 #### Development Utilities
+
 ```bash
 # Run example script
 just demo
@@ -533,6 +546,7 @@ gensay/
 ### Adding a New Provider
 
 1. Use the just command to create a stub:
+
    ```bash
    # The 'new-provider' command is not available in current justfile
    ```
@@ -540,11 +554,13 @@ gensay/
 2. This creates `src/gensay/providers/myprovider.py` with a template
 
 3. Add the provider to `src/gensay/providers/__init__.py`:
+
    ```python
    from .myprovider import MyProviderProvider
    ```
 
 4. Register it in `src/gensay/main.py`:
+
    ```python
    PROVIDERS = {
        # ... existing providers ...
