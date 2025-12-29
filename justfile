@@ -68,7 +68,8 @@ build: clean
     uv build
 
 publish:
-    uv publish --username __token__
+    @test -z "${UV_PUBLISH_TOKEN:-}" && echo "Set UV_PUBLISH_TOKEN in env to publish" && false
+    uv publish --token $UV_PUBLISH_TOKEN
 
 # Run the CLI with mock provider
 run-mock *ARGS:
