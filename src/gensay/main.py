@@ -97,6 +97,7 @@ def create_parser() -> argparse.ArgumentParser:
     # Provider options
     default_provider = get_default_provider()
     parser.add_argument(
+        "-p",
         "--provider",
         choices=PROVIDER_NAMES,
         default=default_provider,

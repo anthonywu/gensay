@@ -1,5 +1,6 @@
 """Amazon Polly TTS provider implementation."""
 
+import hashlib
 import os
 import subprocess
 import tempfile
@@ -14,6 +15,7 @@ try:
 except ImportError:
     BOTO3_AVAILABLE = False
 
+from ..cache import TTSCache
 from .base import AudioFormat, TTSConfig, TTSProvider
 
 
@@ -127,37 +129,56 @@ class AmazonPollyProvider(TTSProvider):
 
         # Cache for voice list
         self._voice_cache: list[dict[str, Any]] | None = None
+        self._cache = TTSCache(enabled=config.cache_enabled if config else True)
 
     def speak(self, text: str, voice: str | None = None, rate: int | None = None) -> None:
         """Speak text using Amazon Polly."""
         voice = voice or self.config.voice or "Joanna"  # Default US English neural voice
 
         try:
-            self.update_progress(0.0, "Generating speech...")
+            self.update_progress(0.0, "Checking cache...")
 
-            # Generate audio to a temp file, then play it
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                temp_path = Path(f.name)
-
-            # Synthesize speech
             ssml_text = self._wrap_with_rate(text, rate)
+            engine = self._get_engine_for_voice(voice)
+            cache_key = self._get_cache_key(ssml_text, voice, engine, "mp3")
 
-            response = self.client.synthesize_speech(
-                Text=ssml_text,
-                TextType="ssml",
-                OutputFormat="mp3",
-                VoiceId=voice,
-                Engine=self._get_engine_for_voice(voice),
-            )
+            audio_data = self._cache.get(cache_key)
 
-            self.update_progress(0.5, "Playing audio...")
+            if audio_data is None:
+                self.update_progress(0.2, "Generating speech...")
 
-            # Write audio stream to file
-            with open(temp_path, "wb") as f:
-                f.write(response["AudioStream"].read())
+                # Generate audio to a temp file, then play it
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                    temp_path = Path(f.name)
 
-            # Play using afplay on macOS
-            subprocess.run(["afplay", str(temp_path)], check=True)
+                # Synthesize speech
+                response = self.client.synthesize_speech(
+                    Text=ssml_text,
+                    TextType="ssml",
+                    OutputFormat="mp3",
+                    VoiceId=voice,
+                    Engine=engine,
+                )
+
+                self.update_progress(0.5, "Playing audio...")
+
+                # Write audio stream to file and cache
+                audio_data = response["AudioStream"].read()
+                temp_path.write_bytes(audio_data)
+                self._cache.put(cache_key, audio_data)
+
+                # Play using afplay on macOS
+                subprocess.run(["afplay", str(temp_path)], check=True)
+            else:
+                self.update_progress(0.5, "Using cached audio...")
+
+                # Write to temp file for playback
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                    temp_path = Path(f.name)
+                temp_path.write_bytes(audio_data)
+
+                # Play using afplay on macOS
+                subprocess.run(["afplay", str(temp_path)], check=True)
 
             self.update_progress(1.0, "Complete")
 
@@ -183,26 +204,35 @@ class AmazonPollyProvider(TTSProvider):
 
         # Map format to Polly format
         polly_format = self.FORMAT_MAP.get(format, "mp3")
+        ssml_text = self._wrap_with_rate(text, rate)
+        engine = self._get_engine_for_voice(voice)
+        cache_key = self._get_cache_key(ssml_text, voice, engine, polly_format)
 
         try:
-            self.update_progress(0.0, "Generating speech...")
+            self.update_progress(0.0, "Checking cache...")
 
-            # Wrap text with SSML for rate control
-            ssml_text = self._wrap_with_rate(text, rate)
+            audio_data = self._cache.get(cache_key)
 
-            response = self.client.synthesize_speech(
-                Text=ssml_text,
-                TextType="ssml",
-                OutputFormat=polly_format,
-                VoiceId=voice,
-                Engine=self._get_engine_for_voice(voice),
-            )
+            if audio_data is None:
+                self.update_progress(0.2, "Generating speech...")
 
-            self.update_progress(0.5, "Saving to file...")
+                response = self.client.synthesize_speech(
+                    Text=ssml_text,
+                    TextType="ssml",
+                    OutputFormat=polly_format,
+                    VoiceId=voice,
+                    Engine=engine,
+                )
 
-            # Write audio stream to file
-            with open(output_path, "wb") as f:
-                f.write(response["AudioStream"].read())
+                self.update_progress(0.5, "Saving to file...")
+
+                # Write audio stream to file and cache
+                audio_data = response["AudioStream"].read()
+                output_path.write_bytes(audio_data)
+                self._cache.put(cache_key, audio_data)
+            else:
+                self.update_progress(0.5, "Using cached audio...")
+                output_path.write_bytes(audio_data)
 
             self.update_progress(1.0, "Complete")
 
@@ -286,12 +316,12 @@ class AmazonPollyProvider(TTSProvider):
         return f'<speak><prosody rate="{rate_percent}%">{text}</prosody></speak>'
 
     def _get_engine_for_voice(self, voice_id: str) -> str:
-        """Get the appropriate engine for a voice.
+        """Get appropriate engine for a voice.
 
         Neural voices require 'neural' engine, standard voices use 'standard'.
         Falls back to configured engine or 'neural'.
         """
-        # If we have cached voice info, check what engines the voice supports
+        # If we have cached voice info, check what engines voice supports
         if self._voice_cache:
             for voice in self._voice_cache:
                 if voice["id"] == voice_id:
@@ -306,3 +336,8 @@ class AmazonPollyProvider(TTSProvider):
 
         # Fall back to configured engine
         return self.engine
+
+    def _get_cache_key(self, ssml_text: str, voice: str, engine: str, format: str) -> str:
+        """Generate cache key for SSML text/voice/engine/format combination."""
+        data = f"polly|{ssml_text}|{voice}|{engine}|{format}"
+        return hashlib.sha256(data.encode()).hexdigest()

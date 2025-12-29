@@ -33,33 +33,44 @@ warnings.filterwarnings(
     message=".*sdpa.*attention does not support.*output_attentions.*",
 )
 
+# Import lightweight base types only
 from .cache import TTSCache  # noqa: E402
-from .providers import (  # noqa: E402
-    AmazonPollyProvider,
-    AudioFormat,
-    ChatterboxProvider,
-    ElevenLabsProvider,
-    MacOSSayProvider,
-    MockProvider,
-    OpenAIProvider,
-    ProgressCallback,
-    TTSConfig,
-    TTSProvider,
-)
+from .providers import AudioFormat, ProgressCallback, TTSConfig, TTSProvider  # noqa: E402
 from .text_chunker import TextChunker, chunk_text_for_tts  # noqa: E402
 
-__all__ = [
-    "TTSProvider",
-    "TTSConfig",
-    "AudioFormat",
-    "ProgressCallback",
+# Provider classes are lazy-loaded via __getattr__ to avoid loading heavy dependencies
+_PROVIDER_CLASSES = {
+    "AmazonPollyProvider",
     "ChatterboxProvider",
+    "ElevenLabsProvider",
     "MacOSSayProvider",
     "MockProvider",
     "OpenAIProvider",
-    "ElevenLabsProvider",
+}
+
+
+def __getattr__(name: str):
+    """Lazy import provider classes to avoid always loading heavy dependencies for all provider types."""
+    if name in _PROVIDER_CLASSES:
+        import importlib
+
+        module = importlib.import_module(".providers", __package__)
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
     "AmazonPollyProvider",
+    "AudioFormat",
+    "ChatterboxProvider",
+    "ElevenLabsProvider",
+    "MacOSSayProvider",
+    "MockProvider",
+    "OpenAIProvider",
+    "ProgressCallback",
     "TTSCache",
+    "TTSConfig",
+    "TTSProvider",
     "TextChunker",
     "chunk_text_for_tts",
 ]

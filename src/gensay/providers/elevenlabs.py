@@ -1,17 +1,20 @@
 """ElevenLabs TTS provider implementation."""
 
+import hashlib
+import io
 import os
 from pathlib import Path
 from typing import Any
 
 try:
     from elevenlabs import ElevenLabs, VoiceSettings
-    from elevenlabs.play import play, save
+    from elevenlabs.play import play
 
     ELEVENLABS_AVAILABLE = True
 except ImportError:
     ELEVENLABS_AVAILABLE = False
 
+from ..cache import TTSCache
 from .base import AudioFormat, TTSConfig, TTSProvider
 
 
@@ -51,6 +54,7 @@ class ElevenLabsProvider(TTSProvider):
         self.client = ElevenLabs(api_key=api_key)
         self._voice_cache: list[dict[str, Any]] | None = None
         self._voice_id_map: dict[str, str] | None = None  # name -> voice_id
+        self._cache = TTSCache(enabled=config.cache_enabled if config else True)
 
     def speak(self, text: str, voice: str | None = None, rate: int | None = None) -> None:
         """Speak text using ElevenLabs TTS."""
@@ -59,21 +63,38 @@ class ElevenLabsProvider(TTSProvider):
 
         # Get voice settings
         voice_settings = self._get_voice_settings(rate)
+        cache_key = self._get_cache_key(text, voice_id, voice_settings, "mp3_44100_128")
 
         try:
-            self.update_progress(0.0, "Generating speech...")
+            self.update_progress(0.0, "Checking cache...")
 
-            # Generate audio using text_to_speech.convert (v2 API)
-            audio = self.client.text_to_speech.convert(
-                voice_id=voice_id,
-                text=text,
-                voice_settings=voice_settings,
-                model_id="eleven_monolingual_v1",
-            )
+            audio_data = self._cache.get(cache_key)
 
-            self.update_progress(0.5, "Playing audio...")
+            if audio_data is None:
+                self.update_progress(0.2, "Generating speech...")
 
-            # Play the audio
+                # Generate audio using text_to_speech.convert (v2 API)
+                audio = self.client.text_to_speech.convert(
+                    voice_id=voice_id,
+                    text=text,
+                    voice_settings=voice_settings,
+                    model_id="eleven_monolingual_v1",
+                )
+
+                # Convert to bytes for caching
+                buffer = io.BytesIO()
+                for chunk in audio:
+                    buffer.write(chunk)
+                audio_data = buffer.getvalue()
+
+                self._cache.put(cache_key, audio_data)
+            else:
+                self.update_progress(0.5, "Using cached audio...")
+
+            self.update_progress(0.8, "Playing audio...")
+
+            # Convert bytes back to audio format
+            audio = io.BytesIO(audio_data)
             play(audio)
 
             self.update_progress(1.0, "Complete")
@@ -100,23 +121,38 @@ class ElevenLabsProvider(TTSProvider):
 
         # Map format to ElevenLabs format
         el_format = self.FORMAT_MAP.get(format, "mp3_44100_128")
+        cache_key = self._get_cache_key(text, voice_id, voice_settings, el_format)
 
         try:
-            self.update_progress(0.0, "Generating speech...")
+            self.update_progress(0.0, "Checking cache...")
 
-            # Generate audio using text_to_speech.convert (v2 API)
-            audio = self.client.text_to_speech.convert(
-                voice_id=voice_id,
-                text=text,
-                voice_settings=voice_settings,
-                model_id="eleven_monolingual_v1",
-                output_format=el_format,
-            )
+            audio_data = self._cache.get(cache_key)
 
-            self.update_progress(0.5, "Saving to file...")
+            if audio_data is None:
+                self.update_progress(0.2, "Generating speech...")
 
-            # Save the audio
-            save(audio, str(output_path))
+                # Generate audio using text_to_speech.convert (v2 API)
+                audio = self.client.text_to_speech.convert(
+                    voice_id=voice_id,
+                    text=text,
+                    voice_settings=voice_settings,
+                    model_id="eleven_monolingual_v1",
+                    output_format=el_format,
+                )
+
+                self.update_progress(0.5, "Saving to file...")
+
+                # Convert to bytes for caching and saving
+                buffer = io.BytesIO()
+                for chunk in audio:
+                    buffer.write(chunk)
+                audio_data = buffer.getvalue()
+
+                output_path.write_bytes(audio_data)
+                self._cache.put(cache_key, audio_data)
+            else:
+                self.update_progress(0.5, "Using cached audio...")
+                output_path.write_bytes(audio_data)
 
             self.update_progress(1.0, "Complete")
 
@@ -214,3 +250,10 @@ class ElevenLabsProvider(TTSProvider):
             use_speaker_boost=True,
             speed=speed,
         )
+
+    def _get_cache_key(
+        self, text: str, voice_id: str, voice_settings: VoiceSettings, format: str
+    ) -> str:
+        """Generate cache key for text/voice/settings/format combination."""
+        data = f"elevenlabs|{text}|{voice_id}|{voice_settings}|{format}"
+        return hashlib.sha256(data.encode()).hexdigest()

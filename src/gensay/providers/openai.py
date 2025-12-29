@@ -1,5 +1,6 @@
 """OpenAI TTS provider implementation."""
 
+import hashlib
 import os
 import subprocess
 import tempfile
@@ -13,6 +14,7 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
+from ..cache import TTSCache
 from .base import AudioFormat, TTSConfig, TTSProvider
 
 
@@ -62,31 +64,51 @@ class OpenAIProvider(TTSProvider):
         self.client = OpenAI(api_key=api_key)
         # Default model - tts-1 is faster, tts-1-hd is higher quality
         self.model = (config.extra.get("model") if config else None) or "tts-1"
+        self._cache = TTSCache(enabled=config.cache_enabled if config else True)
 
     def speak(self, text: str, voice: str | None = None, rate: int | None = None) -> None:
         """Speak text using OpenAI TTS."""
         voice = voice or self.config.voice or "alloy"
         speed = self._rate_to_speed(rate)
+        cache_key = self._get_cache_key(text, voice, speed, "mp3")
 
         try:
-            self.update_progress(0.0, "Generating speech...")
+            self.update_progress(0.0, "Checking cache...")
 
-            # Generate audio to a temp file, then play it
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                temp_path = Path(f.name)
+            audio_data = self._cache.get(cache_key)
 
-            response = self.client.audio.speech.create(
-                model=self.model,
-                voice=voice,
-                input=text,
-                speed=speed,
-                response_format="mp3",
-            )
+            if audio_data is None:
+                self.update_progress(0.2, "Generating speech...")
 
-            self.update_progress(0.5, "Playing audio...")
+                # Generate audio to a temp file
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                    temp_path = Path(f.name)
 
-            # Stream to file
-            response.stream_to_file(temp_path)
+                response = self.client.audio.speech.create(
+                    model=self.model,
+                    voice=voice,
+                    input=text,
+                    speed=speed,
+                    response_format="mp3",
+                )
+
+                self.update_progress(0.5, "Playing audio...")
+
+                # Stream to file
+                response.stream_to_file(temp_path)
+
+                audio_data = temp_path.read_bytes()
+                self._cache.put(cache_key, audio_data)
+
+                # Clean up temp file
+                temp_path.unlink()
+            else:
+                self.update_progress(0.5, "Using cached audio...")
+
+                # Write to temp file for playback
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                    temp_path = Path(f.name)
+                temp_path.write_bytes(audio_data)
 
             # Play using afplay on macOS
             subprocess.run(["afplay", str(temp_path)], check=True)
@@ -116,22 +138,33 @@ class OpenAIProvider(TTSProvider):
 
         # Map format to OpenAI format
         openai_format = self.FORMAT_MAP.get(format, "mp3")
+        cache_key = self._get_cache_key(text, voice, speed, openai_format)
 
         try:
-            self.update_progress(0.0, "Generating speech...")
+            self.update_progress(0.0, "Checking cache...")
 
-            response = self.client.audio.speech.create(
-                model=self.model,
-                voice=voice,
-                input=text,
-                speed=speed,
-                response_format=openai_format,
-            )
+            audio_data = self._cache.get(cache_key)
 
-            self.update_progress(0.5, "Saving to file...")
+            if audio_data is None:
+                self.update_progress(0.2, "Generating speech...")
 
-            # Stream to file
-            response.stream_to_file(output_path)
+                response = self.client.audio.speech.create(
+                    model=self.model,
+                    voice=voice,
+                    input=text,
+                    speed=speed,
+                    response_format=openai_format,
+                )
+
+                self.update_progress(0.5, "Saving to file...")
+
+                # Stream to file and cache
+                response.stream_to_file(output_path)
+                audio_data = output_path.read_bytes()
+                self._cache.put(cache_key, audio_data)
+            else:
+                self.update_progress(0.5, "Using cached audio...")
+                output_path.write_bytes(audio_data)
 
             self.update_progress(1.0, "Complete")
 
@@ -185,3 +218,8 @@ class OpenAIProvider(TTSProvider):
         speed = rate / 150.0
         # Clamp to OpenAI's supported range
         return max(0.25, min(4.0, speed))
+
+    def _get_cache_key(self, text: str, voice: str, speed: float, format: str) -> str:
+        """Generate cache key for text/voice/speed/format combination."""
+        data = f"openai|{text}|{voice}|{speed}|{self.model}|{format}"
+        return hashlib.sha256(data.encode()).hexdigest()

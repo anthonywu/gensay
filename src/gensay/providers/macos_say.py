@@ -1,10 +1,12 @@
 """macOS native say command wrapper provider."""
 
+import hashlib
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
+from ..cache import TTSCache
 from .base import AudioFormat, TTSConfig, TTSProvider
 
 
@@ -14,6 +16,7 @@ class MacOSSayProvider(TTSProvider):
     def __init__(self, config: TTSConfig | None = None):
         super().__init__(config)
         self._say_path = "/usr/bin/say"
+        self._cache = TTSCache(enabled=config.cache_enabled if config else True)
 
         # Check if we're on macOS
         if sys.platform != "darwin":
@@ -135,3 +138,10 @@ class MacOSSayProvider(TTSProvider):
             return "male"
         else:
             return "neutral"
+
+    def _get_cache_key(self, text: str, voice: str | None = None, rate: int | None = None) -> str:
+        """Generate cache key for text/voice/rate combination."""
+        voice = voice or self.config.voice or "default"
+        rate = rate or self.config.rate or 200
+        data = f"macos|{text}|{voice}|{rate}"
+        return hashlib.sha256(data.encode()).hexdigest()

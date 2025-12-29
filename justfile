@@ -114,7 +114,7 @@ test-openai-unit:
 # Run Amazon Polly provider integration tests (requires AWS credentials)
 test-polly:
     @[ -n "${AWS_REGION:-}" ] || { echo "Error: AWS_REGION not set. Run: export AWS_REGION=<region>"; exit 1; }
-    @aws sts get-caller-identity --region "$AWS_REGION" > /dev/null 2>&1 || [ -n "${AWS_ACCESS_KEY_ID:-}" -a -n "${AWS_SECRET_ACCESS_KEY:-}" ] || { echo "Error: AWS credentials not configured (run 'aws configure' or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)"; exit 1; }
+    @aws sts get-caller-identity --region "$AWS_REGION" > /dev/null 2>&1 || [ -n "${AWS_ACCESS_KEY_ID:-}" -a -n "${AWS_SECRET_ACCESS_KEY:-}" ] || { echo "Error: AWS credentials not configured (run e.g. 'aws login --region us-west-2 --remote' or 'aws configure' or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)"; exit 1; }
     uv run pytest tests/test_amazon_polly_provider.py -v
 
 # Run Amazon Polly unit tests (mocked, no credentials needed)
@@ -140,21 +140,21 @@ test-chatterbox:
     echo "=== Chatterbox Integration Test ==="
     echo ""
     echo "1. Listing voices..."
-    gensay --provider chatterbox --list-voices
+    uv run gensay --provider chatterbox --list-voices
     echo ""
     echo "2. Generating speech (short text)..."
-    gensay --provider chatterbox "Hello from Chatterbox TTS."
+    uv run gensay --provider chatterbox "Hello from Chatterbox TTS."
     echo ""
     echo "3. Saving to WAV file..."
-    gensay --provider chatterbox -o /tmp/chatterbox-test.wav "This is a file output test."
+    uv run gensay --provider chatterbox -o /tmp/chatterbox-test.wav "This is a file output test."
     ls -la /tmp/chatterbox-test.wav
     echo ""
     echo "4. Saving to MP3 file..."
-    gensay --provider chatterbox -o /tmp/chatterbox-test.mp3 "Testing MP3 format export."
+    uv run gensay --provider chatterbox -o /tmp/chatterbox-test.mp3 "Testing MP3 format export."
     ls -la /tmp/chatterbox-test.mp3
     echo ""
     echo "5. Testing longer text with chunking..."
-    gensay --provider chatterbox "This is a longer piece of text that will test the chunking functionality. The text chunker should split this into appropriate segments for the TTS model to process efficiently."
+    uv run gensay --provider chatterbox "This is a longer piece of text that will test the chunking functionality. The text chunker should split this into appropriate segments for the TTS model to process efficiently."
     echo ""
     echo "=== All Chatterbox tests passed ==="
 

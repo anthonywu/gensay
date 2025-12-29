@@ -11,9 +11,9 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 - **Multiple TTS Providers**: Extensible provider system with support for:
   - macOS native `say` command (default on macOS)
   - Chatterbox (local AI TTS, default on other platforms)
-  - ElevenLabs (implemented with API support)
-  - OpenAI TTS (stub)
-  - Amazon Polly (stub)
+  - ElevenLabs (cloud API)
+  - OpenAI TTS (cloud API)
+  - Amazon Polly (cloud API)
   - Mock provider for testing
 - **Smart Text Chunking**: Intelligently splits long text for optimal TTS processing
 - **Audio Caching**: Automatic caching with LRU eviction to speed up repeated synthesis
@@ -201,12 +201,15 @@ chunker = TextChunker(
 chunks = chunker.chunk_text(document)
 ```
 
-### ElevenLabs Provider
+## Provider Configurations
 
-To use the ElevenLabs provider, you need:
+### ElevenLabs
 
-1. An API key from [ElevenLabs](https://elevenlabs.io)
-2. Set the environment variable: `export ELEVENLABS_API_KEY="your-api-key"`
+1. Get an API key from [ElevenLabs](https://elevenlabs.io)
+2. Set the environment variable:
+   ```bash
+   export ELEVENLABS_API_KEY="your-api-key"
+   ```
 
 ```bash
 # List ElevenLabs voices
@@ -218,6 +221,71 @@ gensay --provider elevenlabs -v Rachel "Hello from ElevenLabs"
 # Save to file with high quality
 gensay --provider elevenlabs -o speech.mp3 "High quality AI speech"
 ```
+
+### OpenAI TTS
+
+1. Get an API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+2. Set the environment variable:
+   ```bash
+   export OPENAI_API_KEY="sk-..."
+   ```
+
+```bash
+# List OpenAI voices
+gensay --provider openai --list-voices
+
+# Use a specific voice (alloy, ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer)
+gensay --provider openai -v nova "Hello from OpenAI"
+
+# Save to file
+gensay --provider openai -o speech.mp3 "OpenAI TTS output"
+```
+
+OpenAI offers two models via `config.extra['model']`:
+- `tts-1` (default): Faster, lower latency
+- `tts-1-hd`: Higher quality audio
+
+### Amazon Polly
+
+1. Sign in to [AWS Console](https://console.aws.amazon.com/)
+2. Go to **IAM** → **Users** → **Create user**
+3. Attach the `AmazonPollyReadOnlyAccess` policy
+4. Create access keys under **Security credentials** → **Access keys**
+5. Configure credentials (choose one method):
+
+   **Option A - Environment variables:**
+   ```bash
+   export AWS_ACCESS_KEY_ID="AKIA..."
+   export AWS_SECRET_ACCESS_KEY="..."
+   export AWS_DEFAULT_REGION="us-east-1"
+   ```
+
+   **Option B - AWS credentials file** (`~/.aws/credentials`):
+   ```ini
+   [default]
+   aws_access_key_id = AKIA...
+   aws_secret_access_key = ...
+   ```
+
+   **Option C - AWS CLI:**
+   ```bash
+   aws configure
+   ```
+
+```bash
+# List Polly voices (60+ voices in many languages)
+gensay --provider polly --list-voices
+
+# Use a specific voice
+gensay --provider polly -v Joanna "Hello from Amazon Polly"
+
+# Save to file
+gensay --provider polly -o speech.mp3 "Polly TTS output"
+```
+
+Polly supports multiple engines via `config.extra['engine']`:
+- `neural` (default): Higher quality, natural-sounding
+- `standard`: Lower cost, available for all voices
 
 ### PortAudio Setup (for pyaudio)
 

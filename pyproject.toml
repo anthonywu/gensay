@@ -3,13 +3,13 @@ requires = ["uv_build>=0.8.4,<0.9.0"]
 build-backend = "uv_build"
 
 [project]
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
     "accelerate>=1.9.0",
     "numba>=0.60.0",                 # floor to 3.12+ compatible version
     "numpy>=1.26.0",                 # floor to 3.12+ compatible version (distutils removed)
     "chatterbox-tts",                # Custom developer fork/source defined in tool.uv.sources
-    "elevenlabs[pyaudio]>=1.0,<2.0",
+    "elevenlabs[pyaudio]>=2.0,<3.0",
     "platformdirs>=4.3,<5.0",
     "peft>=0.16.0,<1.0",
     "python-dotenv>=1.1.1",
@@ -21,6 +21,8 @@ dependencies = [
     "diffusers>=0.34.0",
     "openai>=1.98.0",
     "distro>=1.9.0",
+    "boto3>=1.40.0",
+    "diskcache>=5.6.3",
 ]
 name = "gensay"
 description = 'Multi-provider TTS tool compatible with macOS say command'
@@ -72,6 +74,20 @@ dev = [
 [tool.uv.sources]
 # the upstream chatterbox-tts rigidly pins its dependencies, the fork relaxes the semvar ranges
 chatterbox-tts = { git = "https://github.com/anthonywu/chatterbox.git", branch = "allow-dep-updates" }
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    # botocore uses deprecated datetime.utcnow() - waiting for upstream fix
+    "ignore:datetime.datetime.utcnow:DeprecationWarning:botocore",
+    # elevenlabs uses Pydantic V1 internals incompatible with Python 3.14+
+    "ignore:Core Pydantic V1 functionality isn't compatible with Python 3.14:UserWarning",
+    # pydub has invalid escape sequences in regex - waiting for upstream fix
+    "ignore:.*is an invalid escape sequence:SyntaxWarning",
+    # perth uses deprecated pkg_resources API
+    "ignore:pkg_resources is deprecated:UserWarning",
+    # diffusers uses deprecated LoRACompatibleLinear (PEFT recommended)
+    "ignore:.*LoRACompatibleLinear.*is deprecated:FutureWarning",
+]
 
 [tool.coverage.run]
 source_pkgs = ["gensay", "tests"]
