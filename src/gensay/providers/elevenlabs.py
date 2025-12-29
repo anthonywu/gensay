@@ -209,16 +209,19 @@ class ElevenLabsProvider(TTSProvider):
 
     def _resolve_voice_id(self, voice: str) -> str:
         """Resolve a voice name or ID to a voice ID."""
-        # If it looks like a voice ID (21 chars), use it directly
-        if len(voice) == 21 and voice.isalnum():
-            return voice
-
         # Populate voice cache if needed
-        if self._voice_id_map is None:
+        if self._voice_id_map is None or self._voice_cache is None:
             self.list_voices()
 
         voice_id_map = self._voice_id_map
+        voice_cache = self._voice_cache
         assert voice_id_map is not None, "Voice ID map should be populated"
+        assert voice_cache is not None, "Voice cache should be populated"
+
+        # Check if it's already a known voice ID
+        known_ids = {v["id"] for v in voice_cache}
+        if voice in known_ids:
+            return voice
 
         # Look up by name (case-insensitive)
         if voice_id := voice_id_map.get(voice.lower()):

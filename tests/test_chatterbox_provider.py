@@ -135,7 +135,7 @@ class TestChatterboxProviderMocked:
         mock_tts, mock_ta = _setup_provider_mocks(provider)
 
         output_file = tmp_path / "output.wav"
-        result_path = provider.save_to_file("Test speech", output_file)
+        result_path = provider.save_to_file("Test speech", output_file, format=AudioFormat.WAV)
 
         assert result_path == output_file
         assert output_file.exists()
