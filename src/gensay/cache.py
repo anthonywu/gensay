@@ -14,7 +14,7 @@ class TTSCache:
         self,
         enabled: bool = True,
         cache_dir: Path | None = None,
-        max_size_mb: int = 500,
+        max_size_mb: int = 10000,
         max_items: int = 1000,
     ):
         self.enabled = enabled

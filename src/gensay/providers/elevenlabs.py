@@ -214,8 +214,11 @@ class ElevenLabsProvider(TTSProvider):
         if self._voice_id_map is None:
             self.list_voices()
 
+        voice_id_map = self._voice_id_map
+        assert voice_id_map is not None, "Voice ID map should be populated"
+
         # Look up by name (case-insensitive)
-        if voice_id := self._voice_id_map.get(voice.lower()):
+        if voice_id := voice_id_map.get(voice.lower()):
             return voice_id
 
         raise ValueError(f"Voice '{voice}' not found. Use list_voices() to see available voices.")

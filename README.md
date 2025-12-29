@@ -335,7 +335,7 @@ from gensay import TTSCache
 # Create cache instance
 cache = TTSCache(
     enabled=True,
-    max_size_mb=500,
+    max_size_mb=10000,
     max_items=1000
 )
 
@@ -346,6 +346,40 @@ print(f"Cached items: {stats['items']}")
 
 # Clear cache
 cache.clear()
+```
+
+**Cache Location**
+
+Cache files are stored in platform-specific user cache directories:
+
+- **macOS**: `~/Library/Caches/gensay`
+- **Linux**: `~/.cache/gensay`
+- **Windows**: `%LOCALAPPDATA%\gensay\gensay\Cache`
+
+**Managing Cache**
+
+```bash
+# Show cache statistics
+gensay --cache-stats
+
+# Clear all cached audio
+gensay --clear-cache
+
+# Disable caching for a specific command
+gensay --no-cache "Text to synthesize without caching"
+```
+
+**Manual Deletion**
+
+To manually delete the cache, remove the cache directory:
+
+```bash
+# macOS/Linux
+rm -rf ~/Library/Caches/gensay  # macOS
+rm -rf ~/.cache/gensay          # Linux
+
+# Windows (PowerShell)
+Remove-Item -Recurse -Force $env:LOCALAPPDATA\gensay\gensay\Cache
 ```
 
 ### Creating Custom Providers
@@ -542,33 +576,6 @@ gensay/
 ├── justfile                # Development commands
 └── README.md
 ```
-
-### Adding a New Provider
-
-1. Use the just command to create a stub:
-
-   ```bash
-   # The 'new-provider' command is not available in current justfile
-   ```
-
-2. This creates `src/gensay/providers/myprovider.py` with a template
-
-3. Add the provider to `src/gensay/providers/__init__.py`:
-
-   ```python
-   from .myprovider import MyProviderProvider
-   ```
-
-4. Register it in `src/gensay/main.py`:
-
-   ```python
-   PROVIDERS = {
-       # ... existing providers ...
-       'myprovider': MyProviderProvider,
-   }
-   ```
-
-5. Implement the required methods in your provider class
 
 ### Code Style Guide
 

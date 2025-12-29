@@ -93,13 +93,10 @@ class OpenAIProvider(TTSProvider):
                 ) as response:
                     response.stream_to_file(temp_path)
 
-                self.update_progress(0.5, "Playing audio...")
-
                 audio_data = temp_path.read_bytes()
                 self._cache.put(cache_key, audio_data)
 
-                # Clean up temp file
-                temp_path.unlink()
+                self.update_progress(0.5, "Playing audio...")
             else:
                 self.update_progress(0.5, "Using cached audio...")
 
