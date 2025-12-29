@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -12,13 +12,26 @@ from gensay.providers import AudioFormat, ElevenLabsProvider, TTSConfig
 ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
 
 
+def _elevenlabs_available() -> bool:
+    """Check if elevenlabs library is available."""
+    try:
+        from elevenlabs import ElevenLabs  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 @pytest.fixture(scope="module", autouse=True)
 def setup_artifacts_dir():
     """Create artifacts directory if it doesn't exist."""
     ARTIFACTS_DIR.mkdir(exist_ok=True)
 
 
-@pytest.mark.skipif(not os.getenv("ELEVENLABS_API_KEY"), reason="ElevenLabs API key not set")
+@pytest.mark.skipif(
+    not _elevenlabs_available() or not os.getenv("ELEVENLABS_API_KEY"),
+    reason="ElevenLabs library not installed or API key not set",
+)
 class TestElevenLabsProvider:
     """Test ElevenLabs provider functionality."""
 
@@ -117,26 +130,41 @@ class TestElevenLabsProviderMocked:
     def test_provider_without_library(self):
         """Test provider fails when library not installed."""
         config = TTSConfig()
-        with pytest.raises(ImportError, match="Please install it with"):
+        with pytest.raises(ImportError, match="Install with:"):
             ElevenLabsProvider(config)
 
     @patch.dict(os.environ, {"ELEVENLABS_API_KEY": "test-key"})
-    @patch("gensay.providers.elevenlabs.ElevenLabs")
-    def test_voice_settings_rate_mapping(self, mock_client):
+    def test_voice_settings_rate_mapping(self):
         """Test rate mapping to voice settings."""
-        config = TTSConfig()
-        provider = ElevenLabsProvider(config)
 
-        # Test different rates
-        settings_slow = provider._get_voice_settings(100)
-        settings_normal = provider._get_voice_settings(150)
-        settings_fast = provider._get_voice_settings(200)
+        # Create a mock VoiceSettings class that stores kwargs as attributes
+        class MockVoiceSettings:
+            def __init__(self, **kwargs):
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
 
-        # ElevenLabs v2 uses speed parameter (slower rate = lower speed)
-        assert settings_slow.speed is not None
-        assert settings_normal.speed is not None
-        assert settings_fast.speed is not None
-        assert settings_slow.speed < settings_normal.speed
-        assert settings_normal.speed < settings_fast.speed
-        # Check specific values: 100/150 = 0.67, 150/150 = 1.0, 200/150 = 1.33
-        assert abs(settings_normal.speed - 1.0) < 0.01
+        mock_client = MagicMock()
+
+        import gensay.providers.elevenlabs as elevenlabs_module
+
+        with (
+            patch.object(elevenlabs_module, "ELEVENLABS_AVAILABLE", True),
+            patch.object(elevenlabs_module, "ElevenLabs", mock_client, create=True),
+            patch.object(elevenlabs_module, "VoiceSettings", MockVoiceSettings, create=True),
+        ):
+            config = TTSConfig()
+            provider = ElevenLabsProvider(config)
+
+            # Test different rates
+            settings_slow = provider._get_voice_settings(100)
+            settings_normal = provider._get_voice_settings(150)
+            settings_fast = provider._get_voice_settings(200)
+
+            # ElevenLabs v2 uses speed parameter (slower rate = lower speed)
+            assert settings_slow.speed is not None
+            assert settings_normal.speed is not None
+            assert settings_fast.speed is not None
+            assert settings_slow.speed < settings_normal.speed
+            assert settings_normal.speed < settings_fast.speed
+            # Check specific values: 100/150 = 0.67, 150/150 = 1.0, 200/150 = 1.33
+            assert abs(settings_normal.speed - 1.0) < 0.01

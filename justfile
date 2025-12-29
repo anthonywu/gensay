@@ -16,7 +16,7 @@ default:
 
 # Setup development environment
 setup:
-    uv sync
+    uv sync --extra chatterbox --extra elevenlabs
 
 # Run all tests
 test:
