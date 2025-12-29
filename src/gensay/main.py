@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from importlib.metadata import version as get_pkg_version
 from pathlib import Path
@@ -41,7 +42,17 @@ def get_providers() -> dict:
 
 
 def get_default_provider() -> str:
-    """Get the default provider based on the platform."""
+    """Get the default provider based on the platform or GENSAY_PROVIDER env var."""
+    if env_provider := os.environ.get("GENSAY_PROVIDER"):
+        if env_provider in PROVIDER_NAMES:
+            return env_provider
+        else:
+            print(
+                f"Warning: GENSAY_PROVIDER '{env_provider}' is not valid. "
+                f"Valid providers: {', '.join(PROVIDER_NAMES)}",
+                file=sys.stderr,
+            )
+
     if sys.platform == "darwin":
         # On macOS, default to the native say command
         return "macos"
@@ -168,6 +179,9 @@ def get_text_input(args) -> str:
 def list_voices(provider: TTSProvider) -> None:
     """List available voices."""
     try:
+        provider_name = provider.__class__.__name__.replace("Provider", "")
+        print(f"\nVoices for provider: {provider_name}\n")
+
         voices = provider.list_voices()
         if not voices:
             print("No voices available", file=sys.stderr)
