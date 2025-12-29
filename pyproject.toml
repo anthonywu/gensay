@@ -3,25 +3,16 @@ requires = ["uv_build>=0.8.4,<0.9.0"]
 build-backend = "uv_build"
 
 [project]
-version = "0.3.0"
+version = "0.3.1"
  dependencies = [
-    "accelerate>=1.9.0",
     "boto3>=1.40.0",
     "botocore[crt]>=1.40.0",
-    "chatterbox-tts",                # Custom developer fork/source defined in tool.uv.sources
-    "diffusers>=0.34.0",
     "diskcache>=5.6.3",
     "distro>=1.9.0",
-    "numba>=0.60.0",                 # floor to 3.12+ compatible version
-    "numpy>=1.26.0",                 # floor to 3.12+ compatible version (distutils removed)
     "openai>=1.98.0",
-    "peft>=0.16.0,<1.0",
     "platformdirs>=4.3,<5.0",
     "psutil>=7.0,<8.0",
-    "pydub>=0.25,<1.0",
     "python-dotenv>=1.1.1",
-    "torch>=2.6,<3.0",               # chatterbox restriction, find out why later
-    "torchaudio>=2.6,<3.0",          # chatterbox restriction, find out why later
     "tqdm>=4.67,<5.0",
 ]
 name = "gensay"
@@ -39,7 +30,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: Implementation :: CPython",
 ]
 
@@ -52,12 +42,22 @@ Issues = "https://github.com/anthonywu/gensay/issues"
 Source = "https://github.com/anthonywu/gensay"
 
 [project.optional-dependencies]
-# Optional provider-specific dependencies
+# Optional provider-specific dependencies and constraints
+chatterbox = [
+    "accelerate>=1.9.0",
+    "diffusers>=0.34.0",
+    "numba>=0.60.0",    # floor to 3.12+ compatible version
+    "numpy>=1.26.0",    # floor to 3.12+ compatible version (distutils removed)
+    "peft>=0.16.0,<1.0",
+    "pydub>=0.25,<1.0",
+    "torch>=2.6,<3.0",
+    "torchaudio>=2.6,<3.0",
+]
 elevenlabs = ["elevenlabs[pyaudio]>=2.0,<3.0"]
 # Audio format conversion
 audio-formats = ["pydub>=0.25.0", "ffmpeg-python>=0.2.0"]
 # All optional dependencies
-all = ["gensay[elevenlabs,audio-formats]"]
+all = ["gensay[chatterbox,elevenlabs,audio-formats]"]
 
 # Development dependencies (PEP 735)
 [dependency-groups]
@@ -70,9 +70,6 @@ dev = [
 ]
 
 
-[tool.uv.sources]
-# the upstream chatterbox-tts rigidly pins its dependencies, the fork relaxes the semvar ranges
-chatterbox-tts = { git = "https://github.com/anthonywu/chatterbox.git", branch = "allow-dep-updates" }
 
 [tool.pytest.ini_options]
 filterwarnings = [

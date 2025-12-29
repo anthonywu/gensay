@@ -285,6 +285,13 @@ def main():  # noqa: C901
         },
     )
 
+    # Warn about slow generation for chatterbox
+    if args.provider == "chatterbox":
+        print(
+            "Note: Chatterbox generation is slow on most consumer hardware, but audio outputs will be cached for re-use.",
+            file=sys.stderr,
+        )
+
     # Create provider (lazy import to defer heavy deps)
     try:
         providers = get_providers()

@@ -11,7 +11,6 @@ import wave
 from pathlib import Path
 from typing import Any
 
-import torchaudio as ta
 from tqdm import tqdm
 
 from ..cache import TTSCache
@@ -36,23 +35,36 @@ class ChatterboxProvider(TTSProvider):
         self._stop_caching = threading.Event()
         self._cache_thread_lock = threading.Lock()
 
-        # Initialize ChatterboxTurboTTS
+        self._ta: Any = None
+        self._tts: Any = None
+        self._device: str = "mps" if platform.system() == "Darwin" else "cuda"
+        self._model_loaded = False
+
+    def _load_model(self) -> None:
+        """Load ChatterboxTurboTTS model (lazy loading)."""
+        if self._model_loaded:
+            return
+
         try:
+            import torchaudio as ta
             from chatterbox.tts_turbo import ChatterboxTurboTTS
 
-            # Default device: mps on macOS, cuda otherwise, fallback to cpu
-            default_device = "mps" if platform.system() == "Darwin" else "cuda"
-            device = config.extra.get("device", default_device) if config else default_device
+            self._ta = ta
+            device = self.config.extra.get("device", self._device) if self.config else self._device
             self._tts = ChatterboxTurboTTS.from_pretrained(device=device)
             self._device = device
+            self._model_loaded = True
         except ImportError as e:
             raise ImportError(
-                "Chatterbox library not found. Install with: pip install chatterbox-tts"
+                "Chatterbox dependencies not found. Install with: [uv tool | pip] "
+                "install 'gensay[chatterbox]' "
+                "--with git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates"
             ) from e
 
     @property
     def sample_rate(self) -> int:
         """Get the model's sample rate."""
+        self._load_model()
         return self._tts.sr
 
     def speak(self, text: str, voice: str | None = None, rate: int | None = None) -> None:
@@ -206,6 +218,7 @@ class ChatterboxProvider(TTSProvider):
 
     def _generate_audio(self, text: str, voice: str) -> bytes:
         """Generate audio data using ChatterboxTurboTTS."""
+        self._load_model()
         generate_kwargs: dict[str, Any] = {}
         if voice != "default" and Path(voice).exists():
             generate_kwargs["audio_prompt_path"] = voice
@@ -217,7 +230,7 @@ class ChatterboxProvider(TTSProvider):
 
         # Convert tensor to WAV bytes for caching/playback
         buffer = io.BytesIO()
-        ta.save(buffer, wav, self.sample_rate, format="wav")
+        self._ta.save(buffer, wav, self.sample_rate, format="wav")
         return buffer.getvalue()
 
     def _play_audio(self, audio_data: bytes) -> None:
