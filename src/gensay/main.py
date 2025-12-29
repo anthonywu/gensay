@@ -136,9 +136,21 @@ def create_parser() -> argparse.ArgumentParser:
         "--chunk-size", type=int, default=500, help="Text chunk size for processing (default: 500)"
     )
 
-    # Interactive options (for compatibility)
+    # Interactive options
     parser.add_argument("-i", "--interactive", help="Interactive mode (not implemented)")
     parser.add_argument("--progress", action="store_true", help="Show progress meter")
+    parser.add_argument(
+        "--repl",
+        action="store_true",
+        help="Start interactive REPL mode (provider initialized once, reused for each prompt)",
+    )
+    parser.add_argument(
+        "--listen",
+        nargs="?",
+        const="/tmp/gensay.pipe",
+        metavar="PIPE",
+        help="Listen on a named pipe (FIFO) for text input (default: /tmp/gensay.pipe)",
+    )
 
     # Version
     parser.add_argument("--version", action="version", version=f"%(prog)s {get_version()}")
@@ -251,6 +263,67 @@ def progress_callback(progress: float, message: str) -> None:
         print()  # New line when complete
 
 
+def run_repl(provider: TTSProvider, voice: str | None, rate: int | None) -> None:
+    """Run interactive REPL mode."""
+    print("REPL mode started. Type text to speak, or 'exit'/'quit' to exit.")
+    print("Press Ctrl+C or Ctrl+D to exit.\n")
+
+    while True:
+        try:
+            text = input("gensay> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nExiting REPL.")
+            break
+
+        if not text:
+            continue
+        if text.lower() in ("exit", "quit"):
+            print("Exiting REPL.")
+            break
+
+        try:
+            provider.speak(text, voice=voice, rate=rate)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+
+
+def run_pipe_listener(
+    provider: TTSProvider, pipe_path: str, voice: str | None, rate: int | None
+) -> None:
+    """Listen on a named pipe (FIFO) for text input."""
+    import stat
+
+    path = Path(pipe_path)
+
+    # Create FIFO if it doesn't exist
+    if not path.exists():
+        os.mkfifo(path)
+        print(f"Created named pipe: {path}")
+    elif not stat.S_ISFIFO(path.stat().st_mode):
+        print(f"Error: {path} exists but is not a FIFO", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Listening on {path}")
+    print(f"Send text with: echo 'hello' > {path}")
+    print("Press Ctrl+C to exit.\n")
+
+    try:
+        while True:
+            # Open blocks until a writer connects
+            with open(path, encoding="utf-8") as fifo:
+                for line in fifo:
+                    text = line.strip()
+                    if not text:
+                        continue
+                    print(f"Speaking: {text[:50]}{'...' if len(text) > 50 else ''}")
+                    try:
+                        provider.speak(text, voice=voice, rate=rate)
+                    except Exception as e:
+                        print(f"Error: {e}", file=sys.stderr)
+    except KeyboardInterrupt:
+        print("\nExiting pipe listener.")
+
+
 def main():  # noqa: C901
     """Main entry point."""
     # Parse args first to allow --version to exit early without loading heavy deps
@@ -266,15 +339,21 @@ def main():  # noqa: C901
     if handle_cache_operations(args):
         return
 
-    # Get text input
-    text = get_text_input(args)
-    if not text and args.voice != "?" and not args.list_voices:
+    # Normalize: --voice ? is shorthand for --list-voices (macOS say compatibility)
+    if args.voice == "?":
+        args.list_voices = True
+        args.voice = None
+
+    # Modes that don't require text input
+    needs_text = not (args.list_voices or args.repl or args.listen)
+    text = get_text_input(args) if needs_text else ""
+    if needs_text and not text:
         parser.print_usage()
         sys.exit(1)
 
     # Configure TTS
     config = TTSConfig(
-        voice=args.voice if args.voice != "?" else None,
+        voice=args.voice,
         rate=args.rate,
         format=AudioFormat(args.format) if args.format else AudioFormat.M4A,
         cache_enabled=not args.no_cache,
@@ -306,8 +385,18 @@ def main():  # noqa: C901
         sys.exit(1)
 
     # Handle voice listing
-    if args.voice == "?" or args.list_voices:
+    if args.list_voices:
         list_voices(provider)
+        return
+
+    # Handle REPL mode
+    if args.repl:
+        run_repl(provider, args.voice, args.rate)
+        return
+
+    # Handle pipe listener mode
+    if args.listen:
+        run_pipe_listener(provider, args.listen, args.voice, args.rate)
         return
 
     try:

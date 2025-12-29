@@ -79,7 +79,18 @@ def test_mock_provider(artifacts_dir):
         assert output_path.stat().st_size > 0, "File should be non-empty"
 
 
+def _chatterbox_available() -> bool:
+    """Check if chatterbox library is available."""
+    try:
+        from chatterbox.tts_turbo import ChatterboxTurboTTS  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="Chatterbox only tested on macOS")
+@pytest.mark.skipif(not _chatterbox_available(), reason="Chatterbox library not installed")
 def test_chatterbox_provider(artifacts_dir):
     """Test Chatterbox provider with available voices."""
     config = TTSConfig(cache_enabled=False)
