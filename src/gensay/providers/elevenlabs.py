@@ -40,7 +40,7 @@ class ElevenLabsProvider(TTSProvider):
         if not ELEVENLABS_AVAILABLE:
             raise ImportError(
                 "ElevenLabs provider requires additional dependencies. "
-                "Install with: pip install 'gensay[elevenlabs]'"
+                "Install with: [uv tool | pip ] install 'gensay[elevenlabs]'"
             )
 
         # Get API key from environment or config
