@@ -62,7 +62,7 @@ all = ["gensay[elevenlabs,audio-formats]"]
 # Development dependencies (PEP 735)
 [dependency-groups]
 dev = [
-    "pdoc>=15.0,<16",
+    "pdoc>=15.0,<17",
     "pygments>=2.19,<3.0",
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
