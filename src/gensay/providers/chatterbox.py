@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import os
 import platform
 import queue
 import shutil
@@ -16,6 +17,75 @@ from tqdm import tqdm
 from ..cache import TTSCache
 from ..text_chunker import ChunkingConfig, TextChunker
 from .base import AudioFormat, TTSConfig, TTSProvider
+
+
+def _find_ffmpeg_lib_path() -> str | None:
+    """Find FFmpeg library path on the system.
+
+    Returns the path to FFmpeg's lib directory, or None if not found.
+    """
+    if platform.system() != "Darwin":
+        return None
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        return None
+
+    # Try Nix-specific detection first (split outputs: bin and lib are separate)
+    try:
+        result = subprocess.run(
+            ["nix-store", "-qR", ffmpeg_path],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if "ffmpeg" in line and line.endswith("-lib"):
+                    lib_path = f"{line}/lib"
+                    if Path(lib_path).exists():
+                        return lib_path
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # Fallback: check relative to ffmpeg binary (Homebrew-style)
+    ffmpeg_real = Path(ffmpeg_path).resolve()
+    lib_dir = ffmpeg_real.parent.parent / "lib"
+    if lib_dir.exists() and any(lib_dir.glob("libav*.dylib")):
+        return str(lib_dir)
+
+    return None
+
+
+class FFmpegLibraryError(RuntimeError):
+    """Raised when FFmpeg libraries are not properly configured."""
+
+    pass
+
+
+def _check_ffmpeg_libs() -> None:
+    """Check that FFmpeg libs are available for TorchCodec.
+
+    On macOS, DYLD_LIBRARY_PATH must be set before the process starts.
+    If not set, detect the path and tell the user how to fix it.
+    """
+    if platform.system() != "Darwin":
+        return
+
+    lib_path = _find_ffmpeg_lib_path()
+    if not lib_path:
+        return  # No FFmpeg found, let torchcodec handle the error
+
+    current = os.environ.get("DYLD_LIBRARY_PATH", "")
+    if lib_path in current.split(":"):
+        return  # Already set correctly
+
+    raise FFmpegLibraryError(
+        f"FFmpeg libraries not in DYLD_LIBRARY_PATH.\n"
+        f"TorchCodec requires FFmpeg libs to be available at process start.\n\n"
+        f"Run this before starting gensay, or persist in your shell profile:\n\n"
+        f'  export DYLD_LIBRARY_PATH="{lib_path}:$DYLD_LIBRARY_PATH"'
+    )
 
 
 class ChatterboxProvider(TTSProvider):
@@ -45,6 +115,9 @@ class ChatterboxProvider(TTSProvider):
         if self._model_loaded:
             return
 
+        # Check FFmpeg libs before importing torchaudio
+        _check_ffmpeg_libs()
+
         try:
             import torchaudio as ta
             from chatterbox.tts_turbo import ChatterboxTurboTTS
@@ -56,8 +129,8 @@ class ChatterboxProvider(TTSProvider):
             self._model_loaded = True
         except ImportError as e:
             raise ImportError(
-                "Chatterbox dependencies not found. Install with: [uv tool | pip] "
-                "install 'gensay[chatterbox]' "
+                "Chatterbox dependencies not found. Install with: "
+                "uv tool install 'gensay[chatterbox]' "
                 "--with git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates"
             ) from e
 
@@ -229,9 +302,17 @@ class ChatterboxProvider(TTSProvider):
             raise RuntimeError(f"ChatterboxTurboTTS.generate returned None for text: {text!r}")
 
         # Convert tensor to WAV bytes for caching/playback
-        buffer = io.BytesIO()
-        self._ta.save(buffer, wav, self.sample_rate, format="wav")
-        return buffer.getvalue()
+        # TorchCodec backend can't write to BytesIO (needs file extension),
+        # so we use a temp file
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            temp_path = f.name
+        try:
+            self._ta.save(temp_path, wav, self.sample_rate)
+            return Path(temp_path).read_bytes()
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
 
     def _play_audio(self, audio_data: bytes) -> None:
         """Play audio data using system audio player."""
