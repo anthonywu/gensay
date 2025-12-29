@@ -136,9 +136,14 @@ def create_parser() -> argparse.ArgumentParser:
         "--chunk-size", type=int, default=500, help="Text chunk size for processing (default: 500)"
     )
 
-    # Interactive options (for compatibility)
+    # Interactive options
     parser.add_argument("-i", "--interactive", help="Interactive mode (not implemented)")
     parser.add_argument("--progress", action="store_true", help="Show progress meter")
+    parser.add_argument(
+        "--repl",
+        action="store_true",
+        help="Start interactive REPL mode (provider initialized once, reused for each prompt)",
+    )
 
     # Version
     parser.add_argument("--version", action="version", version=f"%(prog)s {get_version()}")
@@ -251,6 +256,30 @@ def progress_callback(progress: float, message: str) -> None:
         print()  # New line when complete
 
 
+def run_repl(provider: TTSProvider, voice: str | None, rate: int | None) -> None:
+    """Run interactive REPL mode."""
+    print("REPL mode started. Type text to speak, or 'exit'/'quit' to exit.")
+    print("Press Ctrl+C or Ctrl+D to exit.\n")
+
+    while True:
+        try:
+            text = input("gensay> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nExiting REPL.")
+            break
+
+        if not text:
+            continue
+        if text.lower() in ("exit", "quit"):
+            print("Exiting REPL.")
+            break
+
+        try:
+            provider.speak(text, voice=voice, rate=rate)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+
+
 def main():  # noqa: C901
     """Main entry point."""
     # Parse args first to allow --version to exit early without loading heavy deps
@@ -266,9 +295,9 @@ def main():  # noqa: C901
     if handle_cache_operations(args):
         return
 
-    # Get text input
+    # Get text input (not required for REPL mode)
     text = get_text_input(args)
-    if not text and args.voice != "?" and not args.list_voices:
+    if not text and args.voice != "?" and not args.list_voices and not args.repl:
         parser.print_usage()
         sys.exit(1)
 
@@ -308,6 +337,11 @@ def main():  # noqa: C901
     # Handle voice listing
     if args.voice == "?" or args.list_voices:
         list_voices(provider)
+        return
+
+    # Handle REPL mode
+    if args.repl:
+        run_repl(provider, args.voice, args.rate)
         return
 
     try:
