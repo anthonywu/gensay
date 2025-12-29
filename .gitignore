@@ -1,4 +1,8 @@
 docs/*
 
+# Environment variables (secrets)
+.env
+.env.*
+
 # Test artifacts (audio files generated during tests)
 tests/artifacts/
