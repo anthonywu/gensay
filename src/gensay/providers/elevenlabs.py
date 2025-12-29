@@ -4,7 +4,10 @@ import hashlib
 import io
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from elevenlabs import VoiceSettings
 
 try:
     from elevenlabs import ElevenLabs, VoiceSettings
@@ -236,7 +239,7 @@ class ElevenLabsProvider(TTSProvider):
             AudioFormat.FLAC,
         ]
 
-    def _get_voice_settings(self, rate: int | None = None) -> VoiceSettings:
+    def _get_voice_settings(self, rate: int | None = None) -> "VoiceSettings":
         """Get voice settings with optional rate adjustment."""
         # ElevenLabs v2 supports speed parameter (0.7-1.2, 1.0 is normal)
         # Map WPM rate to speed multiplier:
@@ -255,7 +258,7 @@ class ElevenLabsProvider(TTSProvider):
         )
 
     def _get_cache_key(
-        self, text: str, voice_id: str, voice_settings: VoiceSettings, format: str
+        self, text: str, voice_id: str, voice_settings: "VoiceSettings", format: str
     ) -> str:
         """Generate cache key for text/voice/settings/format combination."""
         data = f"elevenlabs|{text}|{voice_id}|{voice_settings}|{format}"
