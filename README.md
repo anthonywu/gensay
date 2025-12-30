@@ -9,11 +9,11 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 
 - **macOS `say` Compatible**: Drop-in replacement for the macOS `say` command with identical CLI interface
 - **Multiple TTS Providers**: Extensible provider system with support for:
-  - macOS native `say` command (default on macOS)
-  - Chatterbox (local AI TTS, default on other platforms)
-  - ElevenLabs (cloud API)
-  - OpenAI TTS (cloud API)
-  - Amazon Polly (cloud API)
+  - [macOS native `say` command](https://developer.apple.com/library/archive/documentation/LanguagesUtilities/Conceptual/MacAutomationScriptingGuide/SpeakText.html) (default on macOS)
+  - [Chatterbox](https://github.com/resemble-ai/chatterbox) (local AI TTS, default on other platforms)
+  - [ElevenLabs](https://elevenlabs.io/docs/api-reference/text-to-speech/convert) (cloud API)
+  - [OpenAI TTS](https://platform.openai.com/docs/guides/text-to-speech) (cloud API)
+  - [Amazon Polly](https://aws.amazon.com/polly/) (cloud API)
   - Mock provider for testing
 - **Smart Text Chunking**: Intelligently splits long text for optimal TTS processing
 - **Audio Caching**: Automatic caching with LRU eviction to speed up repeated synthesis
@@ -36,7 +36,7 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 
 ## Installation
 
-It's 2025, use [uv](https://github.com/astral-sh/uv)
+It's 2026, use [uv](https://github.com/astral-sh/uv)
 
 `gensay` is intended to be used as a CLI tool that is a drop-in replacement to the macOS `say` CLI.
 
@@ -58,11 +58,18 @@ brew install portaudio
 nix-env -iA nixpkgs.portaudio
 ```
 
-### Installation
+### Install gensay
 
 ```console
 # Install as a tool
 uv tool install gensay
+
+# With extras: ElevenLabs provider (requires PortAudio, see above)
+pip install 'gensay[elevenlabs]'
+
+# With extras: Chatterbox provider (local Text-to-Speech model, ~2GB PyTorch dependencies)
+uv tool install 'gensay[chatterbox]' \
+  --with git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
 
 # Or add to your project
 uv add gensay
@@ -73,20 +80,15 @@ cd gensay
 just setup
 ```
 
-### Optional Provider Dependencies
-
-Some providers require additional dependencies:
+### Optional Dependencies
 
 ```bash
-# Chatterbox provider (local AI TTS, ~2GB PyTorch dependencies)
-uv tool install 'gensay[chatterbox]' \
-  --with git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
-# or with pip
-pip install 'gensay[chatterbox]'
-pip install git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
+# Audio format conversion (for non-native formats like MP3, OGG, FLAC)
+# Requires ffmpeg installed on system
+pip install 'gensay[audio-formats]'
 
-# ElevenLabs provider (requires PortAudio, see above)
-pip install 'gensay[elevenlabs]'
+# Install all optional dependencies
+pip install 'gensay[all]'
 ```
 
 **Installation Help:**
@@ -94,15 +96,49 @@ pip install 'gensay[elevenlabs]'
 - [PyAudio documentation](https://pypi.org/project/PyAudio/) - For PortAudio/PyAudio installation issues
 - [ElevenLabs Python library docs](https://elevenlabs.io/docs/agents-platform/libraries/python) - Official ElevenLabs Python documentation
 
-For source installation, `just setup` automatically configures the PortAudio include/library paths for both Nix and Homebrew installations.
+For developer/maintainer installation, `just setup` automatically configures PortAudio and FFmpeg paths for both Nix and Homebrew.
 
-Or manually set the paths before installing:
+### Build Dependencies
+
+#### PortAudio Paths (for ElevenLabs)
+
+**Homebrew:**
+
+```bash
+export C_INCLUDE_PATH="$(brew --prefix portaudio)/include:$C_INCLUDE_PATH"
+export LIBRARY_PATH="$(brew --prefix portaudio)/lib:$LIBRARY_PATH"
+uv pip install -e .
+```
+
+**Nix:**
 
 ```bash
 export C_INCLUDE_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/include:$C_INCLUDE_PATH"
 export LIBRARY_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/lib:$LIBRARY_PATH"
 uv pip install -e .
 ```
+
+#### FFmpeg Library Path (for Chatterbox on macOS)
+
+Chatterbox uses TorchCodec which requires FFmpeg libraries at runtime. On macOS, set `DYLD_LIBRARY_PATH` before running gensay:
+
+**Homebrew:**
+
+```bash
+export DYLD_LIBRARY_PATH="$(brew --prefix ffmpeg)/lib:$DYLD_LIBRARY_PATH"
+gensay --provider chatterbox "Hello"
+```
+
+**Nix:**
+
+```bash
+# Find the ffmpeg-lib output in the Nix store
+FFMPEG_LIB=$(nix-store -qR "$(which ffmpeg)" | grep 'ffmpeg.*-lib$')
+export DYLD_LIBRARY_PATH="$FFMPEG_LIB/lib:$DYLD_LIBRARY_PATH"
+gensay --provider chatterbox "Hello"
+```
+
+Note: `DYLD_LIBRARY_PATH` must be set before the Python process starts; it cannot be set from within Python.
 
 ## Quick Start
 
@@ -186,26 +222,30 @@ gensay --clear-cache     # Clear all cached audio
 gensay --no-cache "Text" # Disable cache for this run
 ```
 
-### Interactive Modes
+### Interactive Modes and Performance Optimization
 
 #### REPL Mode
 
 Start an interactive session where the provider is initialized once and reused for each prompt. This avoids the overhead of re-initializing the provider.
 
-> **Tip:** Chatterbox is best used in `--repl` or `--listen` mode so the ML model stays loaded between inferences, avoiding the slow model loading on each invocation.
+> **Tip:** For Chatterbox and other local AI models, model loading from disk to memory is expensive (several seconds).
+> Use `--repl` or `--listen` mode to load the model once and process many prompts without reloading.
 
 ```bash
-# Start REPL mode
+# Start REPL mode (--repl, --interactive, and -i are all equivalent)
 gensay --repl
+gensay --interactive
+gensay -i
 
 # With a specific provider and voice
 gensay --provider openai -v nova --repl
 
 # Chatterbox with REPL (recommended - keeps model loaded)
-gensay -p chatterbox --repl
+gensay -p chatterbox -i
 ```
 
 In REPL mode:
+
 - Type text and press Enter to speak it
 - Type `exit` or `quit` to exit
 - Press Ctrl+C or Ctrl+D to exit
@@ -214,6 +254,8 @@ In REPL mode:
 
 Listen on a named pipe for text input, allowing other processes to send text to be spoken. Useful for integrating TTS into scripts or other applications.
 
+> **Tip:** Like REPL mode, `--listen` keeps the provider loaded between requests—ideal for Chatterbox and other local models where initialization is slow.
+
 ```bash
 # Start listening on default pipe (/tmp/gensay.pipe)
 gensay --listen
@@ -221,7 +263,8 @@ gensay --listen
 # Use a custom pipe path
 gensay --listen /tmp/my-tts.pipe
 
-# With a specific provider
+# With a specific provider (Chatterbox benefits most from persistent mode)
+gensay --provider chatterbox --listen
 gensay --provider polly -v Joanna --listen
 ```
 
@@ -379,8 +422,6 @@ aws login --region
 aws login --region --remote
 ```
 
-#### Polly Usage
-
 ```bash
 # List Polly voices (60+ voices in many languages)
 gensay --provider polly --list-voices
@@ -521,7 +562,7 @@ brew install just
 cargo install just
 ```
 
-### Quick Start
+### Getting Started
 
 ```bash
 # Setup development environment
