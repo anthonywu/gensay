@@ -3,20 +3,21 @@ requires = ["uv_build>=0.8.4,<0.10.0"]
 build-backend = "uv_build"
 
 [project]
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
-    "boto3>=1.40.0",
-    "botocore[crt]>=1.40.0",
-    "diskcache>=5.6.3",
-    "distro>=1.9.0",
-    "openai>=1.98.0",
+    "boto3>=1.40.0,<2.0",
+    "botocore[crt]>=1.40.0,<2.0",
+    "diskcache>=5.6.3,<6.0",
+    "distro>=1.9.0,<2.0",
+    "hf-transfer>=0.1.9,<1.0",
+    "openai>=1.98.0,<2.0",
     "platformdirs>=4.3,<5.0",
     "psutil>=7.0,<8.0",
-    "python-dotenv>=1.1.1",
+    "python-dotenv>=1.1.1,<2.0",
     "tqdm>=4.67,<5.0",
 ]
 name = "gensay"
-description = 'Multi-provider TTS tool compatible with macOS say command'
+description = 'Multi-provider TTS tool compatible with macOS say command. Supports Chatterbox TTS for local; ElevenLabs, OpenAI, AWS Polly for cloud APIs'
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -58,7 +59,7 @@ elevenlabs = ["elevenlabs[pyaudio]>=2.0,<3.0"]
 # Audio format conversion
 audio-formats = ["pydub>=0.25.0", "ffmpeg-python>=0.2.0"]
 # All optional dependencies
-all = ["gensay[chatterbox,elevenlabs,audio-formats]"]
+all = ["gensay[audio-formats,chatterbox,elevenlabs]"]
 
 # Development dependencies (PEP 735)
 [dependency-groups]

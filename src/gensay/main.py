@@ -137,11 +137,13 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     # Interactive options
-    parser.add_argument("-i", "--interactive", help="Interactive mode (not implemented)")
     parser.add_argument("--progress", action="store_true", help="Show progress meter")
     parser.add_argument(
+        "-i",
+        "--interactive",
         "--repl",
         action="store_true",
+        dest="repl",
         help="Start interactive REPL mode (provider initialized once, reused for each prompt)",
     )
     parser.add_argument(
