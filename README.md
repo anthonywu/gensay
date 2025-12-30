@@ -60,7 +60,7 @@ nix-env -iA nixpkgs.portaudio
 
 ### Install gensay
 
-```console
+```sh
 # Install as a tool
 uv tool install gensay
 
@@ -82,7 +82,7 @@ just setup
 
 ### Optional Dependencies
 
-```bash
+```sh
 # Audio format conversion (for non-native formats like MP3, OGG, FLAC)
 # Requires ffmpeg installed on system
 pip install 'gensay[audio-formats]'
@@ -91,14 +91,14 @@ pip install 'gensay[audio-formats]'
 pip install 'gensay[all]'
 ```
 
-**Installation Help:**
+**DInstallation Help:**
 
 - [PyAudio documentation](https://pypi.org/project/PyAudio/) - For PortAudio/PyAudio installation issues
 - [ElevenLabs Python library docs](https://elevenlabs.io/docs/agents-platform/libraries/python) - Official ElevenLabs Python documentation
 
 For developer/maintainer installation, `just setup` automatically configures PortAudio and FFmpeg paths for both Nix and Homebrew.
 
-### Build Dependencies
+### Developer/Maintainer Build Dependencies
 
 #### PortAudio Paths (for ElevenLabs)
 
@@ -107,7 +107,6 @@ For developer/maintainer installation, `just setup` automatically configures Por
 ```bash
 export C_INCLUDE_PATH="$(brew --prefix portaudio)/include:$C_INCLUDE_PATH"
 export LIBRARY_PATH="$(brew --prefix portaudio)/lib:$LIBRARY_PATH"
-uv pip install -e .
 ```
 
 **Nix:**
@@ -115,7 +114,14 @@ uv pip install -e .
 ```bash
 export C_INCLUDE_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/include:$C_INCLUDE_PATH"
 export LIBRARY_PATH="$(nix-build '<nixpkgs>' -A portaudio --no-out-link)/lib:$LIBRARY_PATH"
-uv pip install -e .
+```
+
+Then install into local venv:
+
+```sh
+uv sync --all-extras
+# temporarily, we have to use a special release of chatterbox library to allow for dependency resolution
+uv pip install git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
 ```
 
 #### FFmpeg Library Path (for Chatterbox on macOS)
