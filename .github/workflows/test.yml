@@ -15,12 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
-      - name: Install Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: uv sync --python ${{ matrix.python-version }}
       - name: Run tests
-        run: uv run pytest -v --cov=gensay --cov-report=term-missing
+        run: uv run --python ${{ matrix.python-version }} pytest -v --cov=gensay --cov-report=term-missing
 
   lint:
     runs-on: ubuntu-latest
