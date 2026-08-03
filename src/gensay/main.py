@@ -46,21 +46,24 @@ def get_providers() -> dict:
     }
 
 
-def get_default_provider() -> str:
-    """Get the default provider based on the platform or GENSAY_PROVIDER env var."""
-    if env_provider := os.environ.get("GENSAY_PROVIDER"):
-        if env_provider in PROVIDER_NAMES:
-            return env_provider
-        else:
-            print(
-                f"Warning: GENSAY_PROVIDER '{env_provider}' is not valid. "
-                f"Valid providers: {', '.join(PROVIDER_NAMES)}",
-                file=sys.stderr,
-            )
-
+def platform_default_provider() -> str:
+    """Built-in provider when nothing else is configured."""
     if sys.platform == "darwin":
         return "macos"
     return "chatterbox"
+
+
+def get_default_provider(user_provider: str | None = None) -> str:
+    """Resolve provider: env/config (via user_provider) > platform default."""
+    if user_provider:
+        if user_provider in PROVIDER_NAMES:
+            return user_provider
+        print(
+            f"Warning: configured provider '{user_provider}' is not valid. "
+            f"Valid providers: {', '.join(PROVIDER_NAMES)}",
+            file=sys.stderr,
+        )
+    return platform_default_provider()
 
 
 def get_version() -> str:
@@ -71,8 +74,18 @@ def get_version() -> str:
         return "unknown"
 
 
-def create_parser() -> argparse.ArgumentParser:
-    """Create the argument parser matching macOS say command."""
+def create_parser(user_cfg=None) -> argparse.ArgumentParser:
+    """Create the argument parser matching macOS say command.
+
+    ``user_cfg`` is a UserConfig (file + env layered); its values become argparse defaults
+    so bare ``gensay "hi"`` picks them up without flags.
+    """
+    from .user_config import UserConfig
+
+    cfg: UserConfig = user_cfg or UserConfig()
+    d = cfg.main_cli_defaults()
+    default_provider = get_default_provider(d.get("provider"))
+
     parser = argparse.ArgumentParser(
         prog="gensay",
         description="Text-to-speech synthesis with multiple providers",
@@ -89,7 +102,8 @@ def create_parser() -> argparse.ArgumentParser:
   gensay --provider macos --list-voices # List voices for specific provider
   gensay daemon start -p chatterbox
   gensay daemon status
-  gensay daemon stop""",
+  gensay daemon stop
+  gensay config path | show | init""",
     )
 
     # Text input options
@@ -99,19 +113,32 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     # Voice and rate options
-    parser.add_argument("-v", "--voice", help='Select voice by name (use "?" to list voices)')
-    parser.add_argument("-r", "--rate", type=int, help="Speech rate in words per minute")
+    parser.add_argument(
+        "-v",
+        "--voice",
+        default=d.get("voice"),
+        help='Select voice by name (use "?" to list voices)',
+    )
+    parser.add_argument(
+        "-r",
+        "--rate",
+        type=int,
+        default=d.get("rate"),
+        help="Speech rate in words per minute",
+    )
 
     # Output options
     parser.add_argument(
         "-o", "--output-file", dest="output", help="Save audio to file instead of playing"
     )
     parser.add_argument(
-        "--format", choices=[f.value for f in AudioFormat], help="Audio format for output file"
+        "--format",
+        choices=[f.value for f in AudioFormat],
+        default=d.get("format"),
+        help="Audio format for output file",
     )
 
     # Provider options
-    default_provider = get_default_provider()
     parser.add_argument(
         "-p",
         "--provider",
@@ -128,7 +155,13 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     # Advanced options
-    parser.add_argument("--no-cache", action="store_true", help="Disable caching")
+    # store_true with config default: CLI can only force True; use config/env to default True
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        default=bool(d.get("no_cache", False)),
+        help="Disable caching",
+    )
     parser.add_argument("--clear-cache", action="store_true", help="Clear cache and exit")
     parser.add_argument("--cache-stats", action="store_true", help="Show cache statistics and exit")
     parser.add_argument(
@@ -136,13 +169,26 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Pre-cache audio chunks in background (chatterbox only)",
     )
-    parser.add_argument("--no-progress", action="store_true", help="Disable progress bars")
     parser.add_argument(
-        "--chunk-size", type=int, default=500, help="Text chunk size for processing (default: 500)"
+        "--no-progress",
+        action="store_true",
+        default=bool(d.get("no_progress", False)),
+        help="Disable progress bars",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=int(d.get("chunk_size", 500)),
+        help="Text chunk size for processing (default: %(default)s)",
     )
 
     # Interactive options
-    parser.add_argument("--progress", action="store_true", help="Show progress meter")
+    parser.add_argument(
+        "--progress",
+        action="store_true",
+        default=bool(d.get("progress", False)),
+        help="Show progress meter",
+    )
     parser.add_argument(
         "-i",
         "--interactive",
@@ -152,20 +198,23 @@ def create_parser() -> argparse.ArgumentParser:
         help="Start interactive REPL mode (provider initialized once, reused for each prompt)",
     )
 
-    # Daemon client routing
+    # Daemon client routing (BooleanOptionalAction so config default True is overridable)
     parser.add_argument(
         "--via-daemon",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=bool(d.get("via_daemon", False)),
         help="Route request through gensay daemon (fail if daemon not running)",
     )
     parser.add_argument(
         "--no-daemon",
         action="store_true",
+        default=bool(d.get("no_daemon", False)),
         help="Force in-process cold path even if daemon is running",
     )
     parser.add_argument(
         "--auto-daemon",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=bool(d.get("auto_daemon", False)),
         help="Auto-start daemon if missing (warm-eligible providers only)",
     )
     parser.add_argument(
@@ -182,8 +231,33 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def create_daemon_parser() -> argparse.ArgumentParser:
+def create_daemon_parser(user_cfg=None) -> argparse.ArgumentParser:
     """Parser for `gensay daemon ...` subcommands."""
+    from .user_config import UserConfig
+
+    cfg: UserConfig = user_cfg or UserConfig()
+    dd = cfg.daemon
+    # Top-level provider can fill daemon.provider if daemon section omits it
+    daemon_provider = dd.provider or cfg.provider or "chatterbox"
+    if daemon_provider not in PROVIDER_NAMES:
+        daemon_provider = "chatterbox"
+
+    idle_unload = (
+        dd.idle_unload_s
+        if dd.idle_unload_s is not None
+        else float(os.environ.get("GENSAY_DAEMON_IDLE_UNLOAD_S", "0"))
+    )
+    idle_exit = (
+        dd.idle_exit_s
+        if dd.idle_exit_s is not None
+        else float(os.environ.get("GENSAY_DAEMON_IDLE_EXIT_S", "0"))
+    )
+    ready_timeout = (
+        dd.ready_timeout
+        if dd.ready_timeout is not None
+        else float(os.environ.get("GENSAY_DAEMON_START_TIMEOUT_S", "120"))
+    )
+
     parser = argparse.ArgumentParser(
         prog="gensay daemon",
         description="Manage the warm TTS inference daemon",
@@ -195,29 +269,46 @@ def create_daemon_parser() -> argparse.ArgumentParser:
             "-p",
             "--provider",
             choices=PROVIDER_NAMES,
-            default="chatterbox",
-            help="Provider to keep warm (default: chatterbox)",
+            default=daemon_provider,
+            help=f"Provider to keep warm (default: {daemon_provider})",
         )
-        p.add_argument("-v", "--voice", help="Default voice")
-        p.add_argument("-r", "--rate", type=int, help="Default speech rate (wpm)")
-        p.add_argument("--no-cache", action="store_true", help="Disable audio disk cache")
+        p.add_argument(
+            "-v",
+            "--voice",
+            default=dd.voice or cfg.voice,
+            help="Default voice",
+        )
+        p.add_argument(
+            "-r",
+            "--rate",
+            type=int,
+            default=dd.rate if dd.rate is not None else cfg.rate,
+            help="Default speech rate (wpm)",
+        )
+        p.add_argument(
+            "--no-cache",
+            action="store_true",
+            default=bool(dd.no_cache if dd.no_cache is not None else (cfg.no_cache or False)),
+            help="Disable audio disk cache",
+        )
         p.add_argument("--socket", help="Unix socket path override")
         p.add_argument("--runtime-dir", help="Runtime directory for socket/pid")
         p.add_argument(
             "--no-preload",
             action="store_true",
+            default=bool(dd.no_preload or False),
             help="Do not load model at start (load on first request)",
         )
         p.add_argument(
             "--idle-unload-s",
             type=float,
-            default=float(os.environ.get("GENSAY_DAEMON_IDLE_UNLOAD_S", "0")),
+            default=idle_unload,
             help="Unload model after this many idle seconds (0=never)",
         )
         p.add_argument(
             "--idle-exit-s",
             type=float,
-            default=float(os.environ.get("GENSAY_DAEMON_IDLE_EXIT_S", "0")),
+            default=idle_exit,
             help="Exit process after this many idle seconds (0=never)",
         )
 
@@ -226,7 +317,7 @@ def create_daemon_parser() -> argparse.ArgumentParser:
     p_start.add_argument(
         "--ready-timeout",
         type=float,
-        default=float(os.environ.get("GENSAY_DAEMON_START_TIMEOUT_S", "120")),
+        default=ready_timeout,
         help="Seconds to wait for daemon readiness",
     )
 
@@ -249,10 +340,30 @@ def create_daemon_parser() -> argparse.ArgumentParser:
     p_restart.add_argument(
         "--ready-timeout",
         type=float,
-        default=float(os.environ.get("GENSAY_DAEMON_START_TIMEOUT_S", "120")),
+        default=ready_timeout,
         help="Seconds to wait for daemon readiness",
     )
 
+    return parser
+
+
+def create_config_parser() -> argparse.ArgumentParser:
+    """Parser for `gensay config ...`."""
+    parser = argparse.ArgumentParser(
+        prog="gensay config",
+        description="Manage per-user gensay defaults (XDG/platformdirs config dir)",
+    )
+    sub = parser.add_subparsers(dest="config_cmd", required=True)
+    sub.add_parser("path", help="Print config file path")
+    p_show = sub.add_parser("show", help="Show effective defaults (file + env)")
+    p_show.add_argument("--json", action="store_true", dest="as_json", help="JSON output")
+    p_show.add_argument(
+        "--file-only",
+        action="store_true",
+        help="Show file contents only (ignore env overrides)",
+    )
+    p_init = sub.add_parser("init", help="Write example config.toml")
+    p_init.add_argument("--force", action="store_true", help="Overwrite existing config file")
     return parser
 
 
@@ -377,15 +488,14 @@ def run_repl(provider: TTSProvider, voice: str | None, rate: int | None) -> None
             print(f"Error: {e}", file=sys.stderr)
 
 
-def _env_flag(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
-
-
 def _should_use_daemon(args, provider_name: str) -> str:
-    """Return 'require' | 'prefer' | 'never' for daemon routing."""
-    if getattr(args, "no_daemon", False) or _env_flag("GENSAY_NO_DAEMON"):
+    """Return 'require' | 'prefer' | 'never' for daemon routing.
+
+    Flag defaults already include file+env layering; only read args here.
+    """
+    if getattr(args, "no_daemon", False):
         return "never"
-    if getattr(args, "via_daemon", False) or _env_flag("GENSAY_VIA_DAEMON"):
+    if getattr(args, "via_daemon", False):
         return "require"
     if provider_name in WARM_ELIGIBLE_PROVIDERS:
         return "prefer"
@@ -413,7 +523,7 @@ def _try_daemon_speak_or_save(args, text: str) -> bool:  # noqa: C901
 
     paths = default_paths()
     client = DaemonClient(paths)
-    auto = getattr(args, "auto_daemon", False) or _env_flag("GENSAY_AUTO_DAEMON")
+    auto = bool(getattr(args, "auto_daemon", False))
 
     if not client.is_running():
         if auto and args.provider in WARM_ELIGIBLE_PROVIDERS:
@@ -496,14 +606,72 @@ def _try_daemon_speak_or_save(args, text: str) -> bool:  # noqa: C901
         sys.exit(1)
 
 
-def daemon_main(argv: list[str] | None = None) -> None:
-    """Entry for `gensay daemon ...`."""
-    parser = create_daemon_parser()
+def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
+    """Entry for `gensay config ...`."""
+    parser = create_config_parser()
     args = parser.parse_args(argv)
 
+    from .user_config import (
+        default_config_path,
+        load_user_config,
+        resolve_user_config,
+        write_example_config,
+    )
+
+    if args.config_cmd == "path":
+        print(default_config_path())
+        return
+
+    if args.config_cmd == "show":
+        cfg = load_user_config() if args.file_only else resolve_user_config()
+        data = cfg.as_public_dict()
+        meta = {
+            "path": str(cfg.path) if cfg.path else None,
+            "exists": bool(cfg.path and cfg.path.is_file()),
+            "loaded": cfg.loaded,
+        }
+        if args.as_json:
+            print(json.dumps({"meta": meta, "defaults": data}, indent=2))
+        else:
+            print(f"path: {meta['path']}")
+            print(f"exists: {meta['exists']}")
+            print(f"loaded: {meta['loaded']}")
+            if not data:
+                print("(no defaults set)")
+            else:
+                print("defaults:")
+                for k, v in data.items():
+                    if k == "daemon" and isinstance(v, dict):
+                        print("  [daemon]")
+                        for dk, dv in v.items():
+                            print(f"    {dk} = {dv!r}")
+                    else:
+                        print(f"  {k} = {v!r}")
+        return
+
+    if args.config_cmd == "init":
+        try:
+            path = write_example_config(force=args.force)
+        except FileExistsError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(f"wrote {path}")
+        return
+
+    parser.error(f"unknown config command: {args.config_cmd}")
+
+
+def daemon_main(argv: list[str] | None = None) -> None:
+    """Entry for `gensay daemon ...`."""
     from dotenv import load_dotenv
 
     load_dotenv()
+
+    from .user_config import resolve_user_config
+
+    user_cfg = resolve_user_config()
+    parser = create_daemon_parser(user_cfg)
+    args = parser.parse_args(argv)
 
     from .daemon import lifecycle
     from .daemon.paths import default_paths
@@ -593,17 +761,23 @@ def daemon_main(argv: list[str] | None = None) -> None:
 
 def main():  # noqa: C901
     """Main entry point."""
-    # Route daemon subcommands before the macOS-say-compatible parser
+    # Route subcommands before the macOS-say-compatible parser
     if len(sys.argv) > 1 and sys.argv[1] == "daemon":
         daemon_main(sys.argv[2:])
         return
-
-    parser = create_parser()
-    args = parser.parse_args()
+    if len(sys.argv) > 1 and sys.argv[1] == "config":
+        config_main(sys.argv[2:])
+        return
 
     from dotenv import load_dotenv
 
     load_dotenv()
+
+    from .user_config import resolve_user_config
+
+    user_cfg = resolve_user_config()
+    parser = create_parser(user_cfg)
+    args = parser.parse_args()
 
     # --listen removed in favor of daemon
     if args.listen is not None:

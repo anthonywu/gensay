@@ -270,6 +270,41 @@ Environment knobs (twelve-factor):
 
 Socket location defaults to `platformdirs.user_runtime_dir("gensay")` (not `/tmp`).
 
+### User config (per-user defaults)
+
+Bare `gensay "hello"` can pick up preferred flags from a TOML file in the platform config dir (XDG on Linux):
+
+| Platform | Default path |
+|----------|----------------|
+| Linux | `~/.config/gensay/config.toml` (`$XDG_CONFIG_HOME/gensay/…`) |
+| macOS | `~/Library/Application Support/gensay/config.toml` |
+| Override | `GENSAY_CONFIG=/path/to/config.toml` |
+
+**Precedence:** CLI flags > `GENSAY_*` env > config file > built-ins.
+
+```bash
+# Scaffold an annotated example
+gensay config init
+gensay config path
+gensay config show
+gensay config show --json
+```
+
+Example `config.toml`:
+
+```toml
+provider = "chatterbox"
+voice = "default"
+rate = 150
+auto_daemon = true
+
+[daemon]
+provider = "chatterbox"
+idle_unload_s = 0
+```
+
+After that, `gensay "Build finished"` uses chatterbox (and auto-starts the warm daemon if configured) without repeating flags.
+
 #### REPL Mode
 
 Start an interactive session where the provider is initialized once and reused for each prompt (in-process; no daemon required).

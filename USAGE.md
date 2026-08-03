@@ -40,6 +40,11 @@ Daemon:
   gensay daemon stop                  Stop daemon
   gensay daemon restart               Restart daemon
 
+Config (per-user defaults, XDG/platformdirs):
+  gensay config path                  Print config.toml path
+  gensay config show [--json]         Show effective defaults
+  gensay config init [--force]        Write example config.toml
+
 Examples:
   gensay "Hello, world!"
   gensay -v Samantha "Hello from Samantha"
