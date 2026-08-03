@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import json
 import os
 import sys
 from importlib.metadata import version as get_pkg_version
@@ -18,6 +20,9 @@ if TYPE_CHECKING:
 
 # Provider names for argparse choices (avoid importing heavy modules at top level)
 PROVIDER_NAMES = ["chatterbox", "elevenlabs", "macos", "mock", "openai", "polly"]
+
+# Providers with expensive process-local state — prefer daemon when available
+WARM_ELIGIBLE_PROVIDERS = frozenset({"chatterbox"})
 
 
 def get_providers() -> dict:
@@ -54,11 +59,8 @@ def get_default_provider() -> str:
             )
 
     if sys.platform == "darwin":
-        # On macOS, default to the native say command
         return "macos"
-    else:
-        # On other platforms, default to chatterbox
-        return "chatterbox"
+    return "chatterbox"
 
 
 def get_version() -> str:
@@ -84,7 +86,10 @@ def create_parser() -> argparse.ArgumentParser:
   echo "Hello" | gensay -f -
   gensay --provider chatterbox --cache-ahead "Long text to pre-cache"
   gensay -v '?' # List available voices
-  gensay --provider macos --list-voices # List voices for specific provider""",
+  gensay --provider macos --list-voices # List voices for specific provider
+  gensay daemon start -p chatterbox
+  gensay daemon status
+  gensay daemon stop""",
     )
 
     # Text input options
@@ -146,12 +151,29 @@ def create_parser() -> argparse.ArgumentParser:
         dest="repl",
         help="Start interactive REPL mode (provider initialized once, reused for each prompt)",
     )
+
+    # Daemon client routing
+    parser.add_argument(
+        "--via-daemon",
+        action="store_true",
+        help="Route request through gensay daemon (fail if daemon not running)",
+    )
+    parser.add_argument(
+        "--no-daemon",
+        action="store_true",
+        help="Force in-process cold path even if daemon is running",
+    )
+    parser.add_argument(
+        "--auto-daemon",
+        action="store_true",
+        help="Auto-start daemon if missing (warm-eligible providers only)",
+    )
     parser.add_argument(
         "--listen",
         nargs="?",
-        const="/tmp/gensay.pipe",
-        metavar="PIPE",
-        help="Listen on a named pipe (FIFO) for text input (default: /tmp/gensay.pipe)",
+        const="",
+        metavar="IGNORED",
+        help=argparse.SUPPRESS,  # removed; kept only to print migration error
     )
 
     # Version
@@ -160,22 +182,92 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def create_daemon_parser() -> argparse.ArgumentParser:
+    """Parser for `gensay daemon ...` subcommands."""
+    parser = argparse.ArgumentParser(
+        prog="gensay daemon",
+        description="Manage the warm TTS inference daemon",
+    )
+    sub = parser.add_subparsers(dest="daemon_cmd", required=True)
+
+    def add_common(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "-p",
+            "--provider",
+            choices=PROVIDER_NAMES,
+            default="chatterbox",
+            help="Provider to keep warm (default: chatterbox)",
+        )
+        p.add_argument("-v", "--voice", help="Default voice")
+        p.add_argument("-r", "--rate", type=int, help="Default speech rate (wpm)")
+        p.add_argument("--no-cache", action="store_true", help="Disable audio disk cache")
+        p.add_argument("--socket", help="Unix socket path override")
+        p.add_argument("--runtime-dir", help="Runtime directory for socket/pid")
+        p.add_argument(
+            "--no-preload",
+            action="store_true",
+            help="Do not load model at start (load on first request)",
+        )
+        p.add_argument(
+            "--idle-unload-s",
+            type=float,
+            default=float(os.environ.get("GENSAY_DAEMON_IDLE_UNLOAD_S", "0")),
+            help="Unload model after this many idle seconds (0=never)",
+        )
+        p.add_argument(
+            "--idle-exit-s",
+            type=float,
+            default=float(os.environ.get("GENSAY_DAEMON_IDLE_EXIT_S", "0")),
+            help="Exit process after this many idle seconds (0=never)",
+        )
+
+    p_start = sub.add_parser("start", help="Start daemon in background and wait until ready")
+    add_common(p_start)
+    p_start.add_argument(
+        "--ready-timeout",
+        type=float,
+        default=float(os.environ.get("GENSAY_DAEMON_START_TIMEOUT_S", "120")),
+        help="Seconds to wait for daemon readiness",
+    )
+
+    p_run = sub.add_parser("run", help="Run daemon in foreground (for launchd / debugging)")
+    add_common(p_run)
+
+    p_stop = sub.add_parser("stop", help="Stop the running daemon")
+    p_stop.add_argument("--socket", help="Unix socket path override")
+    p_stop.add_argument("--runtime-dir", help="Runtime directory for socket/pid")
+
+    p_status = sub.add_parser("status", help="Show daemon status")
+    p_status.add_argument("--socket", help="Unix socket path override")
+    p_status.add_argument("--runtime-dir", help="Runtime directory for socket/pid")
+    p_status.add_argument(
+        "--json", action="store_true", dest="as_json", help="Machine-readable JSON"
+    )
+
+    p_restart = sub.add_parser("restart", help="Stop then start the daemon")
+    add_common(p_restart)
+    p_restart.add_argument(
+        "--ready-timeout",
+        type=float,
+        default=float(os.environ.get("GENSAY_DAEMON_START_TIMEOUT_S", "120")),
+        help="Seconds to wait for daemon readiness",
+    )
+
+    return parser
+
+
 def get_text_input(args) -> str:
     """Get text input from command line arguments."""
-    # Check for mutual exclusivity
     if args.message and args.file:
         print("Error: Cannot specify both message and -f option", file=sys.stderr)
         sys.exit(1)
 
     if args.message:
-        # Join multiple words from positional arguments
         return " ".join(args.message)
     elif args.file:
         if args.file == "-":
-            # Read from stdin
             return sys.stdin.read().strip()
         else:
-            # Read from file
             try:
                 with open(args.file, encoding="utf-8") as f:
                     return f.read().strip()
@@ -186,7 +278,6 @@ def get_text_input(args) -> str:
                 print(f"Error reading file: {e}", file=sys.stderr)
                 sys.exit(1)
     else:
-        # No input provided
         return ""
 
 
@@ -201,14 +292,11 @@ def list_voices(provider: TTSProvider) -> None:
             print("No voices available", file=sys.stderr)
             return
 
-        # Format similar to macOS say command
         for voice in voices:
-            # Use name if available, otherwise use id
             display_name = voice.get("name", voice["id"])
             lang = voice.get("language", "Unknown")
             desc = voice.get("description", "")
 
-            # Add additional info to description if available
             extra_info = []
             if "use_case" in voice and voice["use_case"]:
                 extra_info.append(voice["use_case"])
@@ -262,7 +350,7 @@ def progress_callback(progress: float, message: str) -> None:
     if message:
         print(f"\r{message} ({int(progress * 100)}%)", end="", flush=True)
     if progress >= 1.0:
-        print()  # New line when complete
+        print()
 
 
 def run_repl(provider: TTSProvider, voice: str | None, rate: int | None) -> None:
@@ -289,71 +377,262 @@ def run_repl(provider: TTSProvider, voice: str | None, rate: int | None) -> None
             print(f"Error: {e}", file=sys.stderr)
 
 
-def run_pipe_listener(
-    provider: TTSProvider, pipe_path: str, voice: str | None, rate: int | None
-) -> None:
-    """Listen on a named pipe (FIFO) for text input."""
-    import stat
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
 
-    path = Path(pipe_path)
 
-    # Create FIFO if it doesn't exist
-    if not path.exists():
-        os.mkfifo(path)
-        print(f"Created named pipe: {path}")
-    elif not stat.S_ISFIFO(path.stat().st_mode):
-        print(f"Error: {path} exists but is not a FIFO", file=sys.stderr)
-        sys.exit(1)
+def _should_use_daemon(args, provider_name: str) -> str:
+    """Return 'require' | 'prefer' | 'never' for daemon routing."""
+    if getattr(args, "no_daemon", False) or _env_flag("GENSAY_NO_DAEMON"):
+        return "never"
+    if getattr(args, "via_daemon", False) or _env_flag("GENSAY_VIA_DAEMON"):
+        return "require"
+    if provider_name in WARM_ELIGIBLE_PROVIDERS:
+        return "prefer"
+    return "never"
 
-    print(f"Listening on {path}")
-    print(f"Send text with: echo 'hello' > {path}")
-    print("Press Ctrl+C to exit.\n")
+
+def _daemon_paths_from_args(args):
+    from .daemon.paths import default_paths
+
+    return default_paths(
+        runtime_dir=getattr(args, "runtime_dir", None),
+        socket=getattr(args, "socket", None),
+    )
+
+
+def _try_daemon_speak_or_save(args, text: str) -> bool:  # noqa: C901
+    """Attempt speak/save via daemon. Returns True if handled (success). Raises on require failure."""
+    from .daemon.client import DaemonClient, DaemonClientError, DaemonNotRunning, DaemonRPCError
+    from .daemon.lifecycle import LifecycleError, start_detached
+    from .daemon.paths import default_paths
+
+    mode = _should_use_daemon(args, args.provider)
+    if mode == "never":
+        return False
+
+    paths = default_paths()
+    client = DaemonClient(paths)
+    auto = getattr(args, "auto_daemon", False) or _env_flag("GENSAY_AUTO_DAEMON")
+
+    if not client.is_running():
+        if auto and args.provider in WARM_ELIGIBLE_PROVIDERS:
+            try:
+                start_detached(
+                    args.provider,
+                    paths=paths,
+                    voice=args.voice,
+                    rate=args.rate,
+                    preload=True,
+                    no_cache=args.no_cache,
+                )
+            except (LifecycleError, DaemonNotRunning) as e:
+                if mode == "require":
+                    print(f"Error: failed to auto-start daemon: {e}", file=sys.stderr)
+                    sys.exit(1)
+                print(f"Warning: auto-start daemon failed ({e}); using cold path", file=sys.stderr)
+                return False
+        elif mode == "require":
+            print(
+                f"Error: daemon not running (socket {paths.socket}). "
+                f"Start with: gensay daemon start -p {args.provider}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        else:
+            if args.provider in WARM_ELIGIBLE_PROVIDERS:
+                print(
+                    f"hint: start a warm daemon to skip model load: "
+                    f"gensay daemon start -p {args.provider}",
+                    file=sys.stderr,
+                )
+            return False
 
     try:
-        while True:
-            # Open blocks until a writer connects
-            with open(path, encoding="utf-8") as fifo:
-                for line in fifo:
-                    text = line.strip()
-                    if not text:
-                        continue
-                    print(f"Speaking: {text[:50]}{'...' if len(text) > 50 else ''}")
-                    try:
-                        provider.speak(text, voice=voice, rate=rate)
-                    except Exception as e:
-                        print(f"Error: {e}", file=sys.stderr)
-    except KeyboardInterrupt:
-        print("\nExiting pipe listener.")
+        if args.list_voices:
+            voices = client.list_voices()
+            # print like list_voices()
+            print(f"\nVoices for provider: {args.provider} (via daemon)\n")
+            for voice in voices:
+                display_name = voice.get("name", voice["id"])
+                lang = voice.get("language", "Unknown")
+                desc = voice.get("description", "")
+                if desc:
+                    print(f"{display_name:<20} {lang:<10} # {desc}")
+                else:
+                    print(f"{display_name:<20} {lang:<10}")
+            return True
+
+        if args.output:
+            result = client.save(
+                text,
+                args.output,
+                voice=args.voice,
+                rate=args.rate,
+                format=args.format,
+                no_cache=args.no_cache,
+                provider=args.provider,
+            )
+            print(f"Audio saved to {result.path or args.output}")
+        else:
+            client.speak(
+                text,
+                voice=args.voice,
+                rate=args.rate,
+                no_cache=args.no_cache,
+                provider=args.provider,
+            )
+        return True
+    except DaemonRPCError as e:
+        print(f"Error: daemon RPC failed: {e}", file=sys.stderr)
+        sys.exit(1)
+    except DaemonNotRunning:
+        if mode == "require":
+            print("Error: daemon disappeared mid-request", file=sys.stderr)
+            sys.exit(1)
+        return False
+    except DaemonClientError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
-def main():  # noqa: C901
-    """Main entry point."""
-    # Parse args first to allow --version to exit early without loading heavy deps
-    parser = create_parser()
-    args = parser.parse_args()
+def daemon_main(argv: list[str] | None = None) -> None:
+    """Entry for `gensay daemon ...`."""
+    parser = create_daemon_parser()
+    args = parser.parse_args(argv)
 
-    # Load environment variables from .env file if present
     from dotenv import load_dotenv
 
     load_dotenv()
 
-    # Handle cache operations
+    from .daemon import lifecycle
+    from .daemon.paths import default_paths
+    from .daemon.server import run_server
+
+    paths = default_paths(
+        runtime_dir=getattr(args, "runtime_dir", None),
+        socket=getattr(args, "socket", None),
+    )
+
+    if args.daemon_cmd == "status":
+        st = lifecycle.status(paths)
+        if getattr(args, "as_json", False):
+            print(json.dumps(st, indent=2))
+        else:
+            if st.get("running"):
+                print(
+                    f"running: yes\n"
+                    f"  pid: {st.get('pid')}\n"
+                    f"  provider: {st.get('provider')}\n"
+                    f"  model_loaded: {st.get('model_loaded')}\n"
+                    f"  device: {st.get('device')}\n"
+                    f"  uptime_s: {st.get('uptime_s')}\n"
+                    f"  queue_depth: {st.get('queue_depth')}\n"
+                    f"  idle_s: {st.get('idle_s')}\n"
+                    f"  version: {st.get('version')}\n"
+                    f"  socket: {st.get('socket')}"
+                )
+            else:
+                print(f"running: no\n  socket: {st.get('socket')}\n  pidfile_pid: {st.get('pid')}")
+                if st.get("note"):
+                    print(f"  note: {st['note']}")
+        return
+
+    if args.daemon_cmd == "stop":
+        lifecycle.stop(paths)
+        print("daemon stopped")
+        return
+
+    if args.daemon_cmd == "restart":
+        with contextlib.suppress(Exception):
+            lifecycle.stop(paths)
+        args.daemon_cmd = "start"
+        # fall through to start
+
+    if args.daemon_cmd == "start":
+        try:
+            st = lifecycle.start_detached(
+                args.provider,
+                paths=paths,
+                voice=args.voice,
+                rate=args.rate,
+                preload=not args.no_preload,
+                idle_unload_s=args.idle_unload_s,
+                idle_exit_s=args.idle_exit_s,
+                no_cache=args.no_cache,
+                ready_timeout_s=args.ready_timeout,
+            )
+        except Exception as e:
+            print(f"Error starting daemon: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(
+            f"started gensay daemon pid={st.pid} provider={st.provider} "
+            f"model_loaded={st.model_loaded}\nsocket={paths.socket}"
+        )
+        return
+
+    if args.daemon_cmd == "run":
+        config = TTSConfig(
+            voice=args.voice,
+            rate=args.rate,
+            cache_enabled=not args.no_cache,
+            extra={"show_progress": False, "chunk_size": 500},
+        )
+        run_server(
+            args.provider,
+            config=config,
+            paths=paths,
+            preload=not args.no_preload,
+            idle_unload_s=args.idle_unload_s,
+            idle_exit_s=args.idle_exit_s,
+        )
+        return
+
+    parser.error(f"unknown daemon command: {args.daemon_cmd}")
+
+
+def main():  # noqa: C901
+    """Main entry point."""
+    # Route daemon subcommands before the macOS-say-compatible parser
+    if len(sys.argv) > 1 and sys.argv[1] == "daemon":
+        daemon_main(sys.argv[2:])
+        return
+
+    parser = create_parser()
+    args = parser.parse_args()
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    # --listen removed in favor of daemon
+    if args.listen is not None:
+        print(
+            "Error: --listen was removed. Use the warm daemon instead:\n"
+            "  gensay daemon start -p chatterbox\n"
+            "  gensay daemon run -p mock          # foreground\n"
+            "  gensay daemon status | stop",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
     if handle_cache_operations(args):
         return
 
-    # Normalize: --voice ? is shorthand for --list-voices (macOS say compatibility)
     if args.voice == "?":
         args.list_voices = True
         args.voice = None
 
-    # Modes that don't require text input
-    needs_text = not (args.list_voices or args.repl or args.listen)
+    needs_text = not (args.list_voices or args.repl)
     text = get_text_input(args) if needs_text else ""
     if needs_text and not text:
         parser.print_usage()
         sys.exit(1)
 
-    # Configure TTS
+    # Prefer daemon for speak/save/list_voices when appropriate
+    if not args.repl and not args.cache_ahead and _try_daemon_speak_or_save(args, text):
+        return
+
     config = TTSConfig(
         voice=args.voice,
         rate=args.rate,
@@ -366,14 +645,13 @@ def main():  # noqa: C901
         },
     )
 
-    # Warn about slow generation for chatterbox
     if args.provider == "chatterbox":
         print(
-            "Note: Chatterbox generation is slow on most consumer hardware, but audio outputs will be cached for re-use.",
+            "Note: Chatterbox generation is slow on most consumer hardware, "
+            "but audio outputs will be cached for re-use.",
             file=sys.stderr,
         )
 
-    # Create provider (lazy import to defer heavy deps)
     try:
         providers = get_providers()
         provider_class = providers[args.provider]
@@ -386,31 +664,21 @@ def main():  # noqa: C901
         print(f"Error initializing {args.provider} provider: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Handle voice listing
     if args.list_voices:
         list_voices(provider)
         return
 
-    # Handle REPL mode
     if args.repl:
         run_repl(provider, args.voice, args.rate)
         return
 
-    # Handle pipe listener mode
-    if args.listen:
-        run_pipe_listener(provider, args.listen, args.voice, args.rate)
-        return
-
     try:
-        # Handle cache-ahead for chatterbox
         if args.cache_ahead and isinstance(provider, providers["chatterbox"]):
             print("Pre-caching audio chunks...")
             provider.cache_ahead(text, args.voice, args.rate)
             print("Cache-ahead started in background")
 
-        # Generate speech
         if args.output:
-            # Save to file
             output_path = Path(args.output)
             if args.format:
                 format = AudioFormat(args.format)
@@ -422,7 +690,6 @@ def main():  # noqa: C901
             )
             print(f"Audio saved to {result}")
         else:
-            # Speak directly
             provider.speak(text, voice=args.voice, rate=args.rate)
 
     except NotImplementedError as e:
