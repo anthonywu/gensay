@@ -14,6 +14,17 @@ class MockProvider(TTSProvider):
         super().__init__(config)
         self.last_spoken_text = None
         self.last_saved_file = None
+        self.warmup_calls = 0
+        self.unload_calls = 0
+        self._warm = False
+
+    def warmup(self) -> None:
+        self.warmup_calls += 1
+        self._warm = True
+
+    def unload(self) -> None:
+        self.unload_calls += 1
+        self._warm = False
 
     def speak(self, text: str, voice: str | None = None, rate: int | None = None) -> None:
         """Mock speak - just records the text."""
@@ -21,18 +32,22 @@ class MockProvider(TTSProvider):
         voice = voice or self.config.voice or "mock-voice"
         rate = rate or self.config.rate or 150
 
-        # Simulate speaking time based on text length and rate
-        words = len(text.split())
-        duration = (words / rate) * 60  # Convert to seconds
-
         self.update_progress(0.0, f"Mock speaking with {voice} at {rate} wpm")
 
-        # Simulate progress updates
-        steps = max(1, int(duration * 10))
-        for i in range(steps):
-            time.sleep(duration / steps)
-            progress = (i + 1) / steps
-            self.update_progress(progress, f"Speaking... {int(progress * 100)}%")
+        # Optional delay simulation (disabled when extra.simulate_delay is False)
+        simulate = True
+        if self.config and self.config.extra:
+            simulate = self.config.extra.get("simulate_delay", True)
+        if simulate:
+            words = max(1, len(text.split()))
+            duration = (words / rate) * 60
+            steps = max(1, int(duration * 10))
+            for i in range(steps):
+                time.sleep(duration / steps)
+                progress = (i + 1) / steps
+                self.update_progress(progress, f"Speaking... {int(progress * 100)}%")
+        else:
+            self.update_progress(1.0, "Speaking... 100%")
 
         print(f"[MockProvider] Spoke: {text[:50]}...")
 

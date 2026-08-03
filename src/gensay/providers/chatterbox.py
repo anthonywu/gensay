@@ -110,6 +110,27 @@ class ChatterboxProvider(TTSProvider):
         self._device: str = "mps" if platform.system() == "Darwin" else "cuda"
         self._model_loaded = False
 
+    def warmup(self) -> None:
+        """Eagerly load Chatterbox model into memory."""
+        self._load_model()
+
+    def unload(self) -> None:
+        """Drop model tensors to free RAM/VRAM. Next speak reloads."""
+        if not self._model_loaded:
+            return
+        self._tts = None
+        self._ta = None
+        self._model_loaded = False
+        try:
+            import torch
+
+            if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+                torch.mps.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
     def _load_model(self) -> None:
         """Load ChatterboxTurboTTS model (lazy loading)."""
         if self._model_loaded:

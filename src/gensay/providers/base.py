@@ -119,3 +119,11 @@ class TTSProvider(ABC):
         """Update progress if callback is configured."""
         if self.config.progress_callback:
             self.config.progress_callback(progress, message)
+
+    def warmup(self) -> None:
+        """Eagerly load provider resources (models, clients). Idempotent no-op by default."""
+        return None
+
+    def unload(self) -> None:
+        """Release heavy resources (models). Idempotent no-op by default."""
+        return None
