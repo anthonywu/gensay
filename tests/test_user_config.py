@@ -126,3 +126,85 @@ def test_config_cli_path_and_show(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     config_main(["path"])
     config_main(["show"])
     config_main(["show", "--json"])
+
+
+def test_config_set_get_unset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    path = tmp_path / "config.toml"
+    monkeypatch.setenv("GENSAY_CONFIG", str(path))
+
+    from gensay.user_config import (
+        get_config_value,
+        load_user_config,
+        set_config_value,
+        unset_config_value,
+    )
+
+    set_config_value("provider", "mock")
+    set_config_value("auto_daemon", "true")
+    set_config_value("rate", "175")
+    set_config_value("daemon.provider", "mock")
+    set_config_value("daemon.idle_unload_s", "45")
+
+    assert get_config_value("provider") == "mock"
+    assert get_config_value("auto_daemon") is True
+    assert get_config_value("rate") == 175
+    assert get_config_value("daemon.provider") == "mock"
+    assert get_config_value("daemon.idle_unload_s") == 45.0
+
+    cfg = load_user_config()
+    assert cfg.provider == "mock"
+    assert cfg.auto_daemon is True
+    assert cfg.daemon.idle_unload_s == 45.0
+
+    assert path.is_file()
+    text = path.read_text(encoding="utf-8")
+    assert 'provider = "mock"' in text
+    assert "auto_daemon = true" in text
+    assert "[daemon]" in text
+
+    assert unset_config_value("rate") is True
+    assert get_config_value("rate") is None
+    assert unset_config_value("rate") is False
+
+
+def test_config_set_invalid_key_and_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from gensay.user_config import ConfigKeyError, ConfigValueError, set_config_value
+
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "c.toml"))
+    with pytest.raises(ConfigKeyError):
+        set_config_value("not_a_key", "x")
+    with pytest.raises(ConfigValueError):
+        set_config_value("auto_daemon", "maybe")
+    with pytest.raises(ConfigValueError):
+        set_config_value("rate", "fast")
+
+
+def test_config_cli_get_set(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
+    path = tmp_path / "config.toml"
+    monkeypatch.setenv("GENSAY_CONFIG", str(path))
+
+    from gensay.main import config_main
+
+    config_main(["set", "provider", "mock"])
+    config_main(["set", "auto_daemon", "true"])
+    config_main(["get", "provider"])
+    out = capsys.readouterr().out
+    assert "mock" in out
+
+    config_main(["get", "auto_daemon"])
+    assert "true" in capsys.readouterr().out
+
+    config_main(["keys"])
+    keys_out = capsys.readouterr().out
+    assert "provider" in keys_out
+    assert "daemon.provider" in keys_out
+
+    config_main(["unset", "provider"])
+    capsys.readouterr()  # discard unset chatter
+    with pytest.raises(SystemExit) as ei:
+        config_main(["get", "provider"])
+    assert ei.value.code == 1
+    capsys.readouterr()
+
+    config_main(["get", "provider", "--default", ""])
+    assert capsys.readouterr().out.strip() == ""

@@ -283,9 +283,16 @@ Bare `gensay "hello"` can pick up preferred flags from a TOML file in the platfo
 **Precedence:** CLI flags > `GENSAY_*` env > config file > built-ins.
 
 ```bash
-# Scaffold an annotated example
+# Scaffold an annotated example, or set keys directly
 gensay config init
 gensay config path
+gensay config keys
+gensay config set provider chatterbox
+gensay config set auto_daemon true
+gensay config set daemon.provider chatterbox
+gensay config get provider
+gensay config get auto_daemon
+gensay config unset voice
 gensay config show
 gensay config show --json
 ```

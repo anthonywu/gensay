@@ -44,6 +44,10 @@ Config (per-user defaults, XDG/platformdirs):
   gensay config path                  Print config.toml path
   gensay config show [--json]         Show effective defaults
   gensay config init [--force]        Write example config.toml
+  gensay config keys                  List known keys
+  gensay config get KEY [--effective] [--default VAL]
+  gensay config set KEY VALUE...
+  gensay config unset KEY
 
 Examples:
   gensay "Hello, world!"

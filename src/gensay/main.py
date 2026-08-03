@@ -364,6 +364,33 @@ def create_config_parser() -> argparse.ArgumentParser:
     )
     p_init = sub.add_parser("init", help="Write example config.toml")
     p_init.add_argument("--force", action="store_true", help="Overwrite existing config file")
+
+    p_get = sub.add_parser("get", help="Get a single key from config file")
+    p_get.add_argument("key", help="Key (e.g. provider, auto_daemon, daemon.provider)")
+    p_get.add_argument(
+        "--effective",
+        action="store_true",
+        help="Resolve file + env (not file alone)",
+    )
+    p_get.add_argument(
+        "--default",
+        dest="default_value",
+        default=None,
+        help="Print this if key is unset (exit 0); otherwise exit 1 when unset",
+    )
+
+    p_set = sub.add_parser("set", help="Set a key and write config.toml")
+    p_set.add_argument("key", help="Key (e.g. provider, auto_daemon, daemon.provider)")
+    p_set.add_argument(
+        "value",
+        nargs="+",
+        help="Value (bool: true/false; join multiple words with spaces for strings)",
+    )
+
+    p_unset = sub.add_parser("unset", help="Remove a key from config.toml")
+    p_unset.add_argument("key", help="Key to remove")
+
+    sub.add_parser("keys", help="List known config keys")
     return parser
 
 
@@ -612,14 +639,25 @@ def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
     args = parser.parse_args(argv)
 
     from .user_config import (
+        KNOWN_KEYS,
+        ConfigKeyError,
+        ConfigValueError,
         default_config_path,
+        get_config_value,
         load_user_config,
         resolve_user_config,
+        set_config_value,
+        unset_config_value,
         write_example_config,
     )
 
     if args.config_cmd == "path":
         print(default_config_path())
+        return
+
+    if args.config_cmd == "keys":
+        for key in KNOWN_KEYS:
+            print(key)
         return
 
     if args.config_cmd == "show":
@@ -656,6 +694,57 @@ def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
         print(f"wrote {path}")
+        return
+
+    if args.config_cmd == "get":
+        try:
+            val = get_config_value(args.key, effective=args.effective)
+        except ConfigKeyError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        except ConfigValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        if val is None:
+            if args.default_value is not None:
+                print(args.default_value)
+                return
+            print(f"Error: key {args.key!r} is not set", file=sys.stderr)
+            sys.exit(1)
+        if isinstance(val, bool):
+            print("true" if val else "false")
+        else:
+            print(val)
+        return
+
+    if args.config_cmd == "set":
+        raw = " ".join(args.value)
+        try:
+            parsed = set_config_value(args.key, raw)
+        except (ConfigKeyError, ConfigValueError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        path = default_config_path()
+        shown = ("true" if parsed else "false") if isinstance(parsed, bool) else parsed
+        print(f"set {args.key} = {shown}")
+        print(f"wrote {path}")
+        return
+
+    if args.config_cmd == "unset":
+        try:
+            removed = unset_config_value(args.key)
+        except ConfigKeyError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        except ConfigValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        if removed:
+            print(f"unset {args.key}")
+            print(f"wrote {default_config_path()}")
+        else:
+            print(f"key {args.key!r} was not set", file=sys.stderr)
+            sys.exit(1)
         return
 
     parser.error(f"unknown config command: {args.config_cmd}")

@@ -43,6 +43,32 @@ MAIN_CLI_KEYS = frozenset(
     }
 )
 
+# Canonical key → value type for get/set validation
+# Nested daemon keys use "daemon.<name>" dotted form.
+KEY_TYPES: dict[str, type] = {
+    "provider": str,
+    "voice": str,
+    "rate": int,
+    "format": str,
+    "chunk_size": int,
+    "no_cache": bool,
+    "no_progress": bool,
+    "progress": bool,
+    "via_daemon": bool,
+    "no_daemon": bool,
+    "auto_daemon": bool,
+    "daemon.provider": str,
+    "daemon.voice": str,
+    "daemon.rate": int,
+    "daemon.no_cache": bool,
+    "daemon.no_preload": bool,
+    "daemon.idle_unload_s": float,
+    "daemon.idle_exit_s": float,
+    "daemon.ready_timeout": float,
+}
+
+KNOWN_KEYS = tuple(sorted(KEY_TYPES))
+
 
 @dataclass
 class DaemonDefaults:
@@ -287,3 +313,243 @@ def write_example_config(path: Path | None = None, *, force: bool = False) -> Pa
 def resolve_user_config(path: Path | None = None) -> UserConfig:
     """Load file then apply env overrides — ready for argparse defaults."""
     return apply_env_overrides(load_user_config(path))
+
+
+class ConfigKeyError(KeyError):
+    """Unknown or invalid config key."""
+
+
+class ConfigValueError(ValueError):
+    """Invalid config value for key type."""
+
+
+def load_raw_dict(path: Path | None = None) -> dict[str, Any]:
+    """Load config file as a plain dict (empty if missing)."""
+    cfg_path = path or default_config_path()
+    if not cfg_path.is_file():
+        return {}
+    try:
+        raw = cfg_path.read_bytes()
+        if not raw.strip():
+            return {}
+        data = tomllib.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
+        raise ConfigValueError(f"could not read config {cfg_path}: {e}") from e
+    if not isinstance(data, dict):
+        raise ConfigValueError(f"config root must be a table: {cfg_path}")
+    return data
+
+
+def dump_toml(data: dict[str, Any]) -> str:  # noqa: C901
+    """Serialize a simple dict (scalars + one-level tables) to TOML text."""
+    lines: list[str] = [
+        "# gensay user defaults — managed by `gensay config set|unset`",
+        "",
+    ]
+    # Top-level scalars first (stable order: known keys then extras)
+    top_keys = [k for k in KNOWN_KEYS if "." not in k]
+    seen: set[str] = set()
+    for key in top_keys:
+        if key in data and not isinstance(data[key], dict):
+            lines.append(f"{key} = {_toml_literal(data[key])}")
+            seen.add(key)
+    for key in sorted(data):
+        if key in seen or isinstance(data[key], dict):
+            continue
+        lines.append(f"{key} = {_toml_literal(data[key])}")
+
+    # Tables
+    tables = {k: v for k, v in data.items() if isinstance(v, dict)}
+    # Prefer known daemon table order
+    table_names = sorted(tables, key=lambda n: (n != "daemon", n))
+    for name in table_names:
+        table = tables[name]
+        if not table:
+            continue
+        lines.append("")
+        lines.append(f"[{name}]")
+        # known daemon keys first
+        preferred = [k.split(".", 1)[1] for k in KNOWN_KEYS if k.startswith(f"{name}.")]
+        for sub in preferred:
+            if sub in table:
+                lines.append(f"{sub} = {_toml_literal(table[sub])}")
+        for sub in sorted(table):
+            if sub not in preferred:
+                lines.append(f"{sub} = {_toml_literal(table[sub])}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _toml_literal(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        # keep ints clean when whole
+        if value.is_integer():
+            return str(int(value))
+        return repr(value)
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    raise ConfigValueError(f"unsupported config value type: {type(value).__name__}")
+
+
+def save_raw_dict(data: dict[str, Any], path: Path | None = None) -> Path:
+    """Write config dict to TOML (creates parent dirs)."""
+    cfg_path = path or default_config_path()
+    cfg_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    cfg_path.write_text(dump_toml(data), encoding="utf-8")
+    with contextlib.suppress(OSError):
+        cfg_path.chmod(0o600)
+    return cfg_path
+
+
+def normalize_key(key: str) -> str:
+    """Normalize user key to canonical dotted form."""
+    k = key.strip().lower().replace("-", "_")
+    if k.startswith("daemon_"):
+        k = "daemon." + k[len("daemon_") :]
+    return k
+
+
+def parse_config_value(key: str, raw: str) -> Any:
+    """Parse a CLI string into the typed value for ``key``."""
+    key = normalize_key(key)
+    if key not in KEY_TYPES:
+        raise ConfigKeyError(
+            f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}"
+        )
+    typ = KEY_TYPES[key]
+    text = raw.strip()
+    if typ is bool:
+        low = text.lower()
+        if low in ("1", "true", "yes", "on"):
+            return True
+        if low in ("0", "false", "no", "off"):
+            return False
+        raise ConfigValueError(f"{key} expects bool (true/false), got {raw!r}")
+    if typ is int:
+        try:
+            return int(text, 10)
+        except ValueError as e:
+            raise ConfigValueError(f"{key} expects int, got {raw!r}") from e
+    if typ is float:
+        try:
+            return float(text)
+        except ValueError as e:
+            raise ConfigValueError(f"{key} expects float, got {raw!r}") from e
+    # str
+    return text
+
+
+def get_config_value(
+    key: str,
+    *,
+    path: Path | None = None,
+    effective: bool = False,
+) -> Any:
+    """Read one key from file (or effective file+env if effective=True).
+
+    Returns None if unset. Raises ConfigKeyError for unknown keys.
+    """
+    key = normalize_key(key)
+    if key not in KEY_TYPES:
+        raise ConfigKeyError(
+            f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}"
+        )
+
+    if effective:
+        cfg = resolve_user_config(path)
+        return _user_config_get(cfg, key)
+
+    data = load_raw_dict(path)
+    return _dict_get_dotted(data, key)
+
+
+def set_config_value(key: str, value: str | Any, *, path: Path | None = None) -> Any:
+    """Set one key and persist. ``value`` may be a string (parsed) or typed value."""
+    key = normalize_key(key)
+    if key not in KEY_TYPES:
+        raise ConfigKeyError(
+            f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}"
+        )
+    parsed = parse_config_value(key, value) if isinstance(value, str) else value
+    # type check
+    expected = KEY_TYPES[key]
+    if expected is float and isinstance(parsed, int) and not isinstance(parsed, bool):
+        parsed = float(parsed)
+    elif expected is bool:
+        if not isinstance(parsed, bool):
+            raise ConfigValueError(f"{key} expects bool")
+    elif not isinstance(parsed, expected):
+        # allow int for float already handled
+        raise ConfigValueError(f"{key} expects {expected.__name__}")
+
+    data = load_raw_dict(path)
+    _dict_set_dotted(data, key, parsed)
+    save_raw_dict(data, path)
+    return parsed
+
+
+def unset_config_value(key: str, *, path: Path | None = None) -> bool:
+    """Remove one key from file. Returns True if it was present."""
+    key = normalize_key(key)
+    if key not in KEY_TYPES:
+        raise ConfigKeyError(
+            f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}"
+        )
+    data = load_raw_dict(path)
+    removed = _dict_del_dotted(data, key)
+    if removed:
+        save_raw_dict(data, path)
+    return removed
+
+
+def _dict_get_dotted(data: dict[str, Any], key: str) -> Any:
+    if "." not in key:
+        return data.get(key)
+    table, sub = key.split(".", 1)
+    nested = data.get(table)
+    if not isinstance(nested, dict):
+        return None
+    return nested.get(sub)
+
+
+def _dict_set_dotted(data: dict[str, Any], key: str, value: Any) -> None:
+    if "." not in key:
+        data[key] = value
+        return
+    table, sub = key.split(".", 1)
+    nested = data.get(table)
+    if not isinstance(nested, dict):
+        nested = {}
+        data[table] = nested
+    nested[sub] = value
+
+
+def _dict_del_dotted(data: dict[str, Any], key: str) -> bool:
+    if "." not in key:
+        if key in data:
+            del data[key]
+            return True
+        return False
+    table, sub = key.split(".", 1)
+    nested = data.get(table)
+    if not isinstance(nested, dict) or sub not in nested:
+        return False
+    del nested[sub]
+    if not nested:
+        del data[table]
+    return True
+
+
+def _user_config_get(cfg: UserConfig, key: str) -> Any:
+    if "." not in key:
+        return getattr(cfg, key, None)
+    table, sub = key.split(".", 1)
+    if table != "daemon":
+        return None
+    return getattr(cfg.daemon, sub, None)
