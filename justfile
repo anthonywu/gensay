@@ -202,3 +202,23 @@ test-matrix:
 # Clean up test-matrix artifacts
 test-matrix-clean:
     rm -rf /tmp/gensay-tool-test-*
+
+# Daemon unit + lifecycle tests (mock provider; no torch)
+test-daemon:
+    uv run pytest tests/test_daemon_protocol.py tests/test_daemon_server.py tests/test_daemon_lifecycle.py -v
+
+# Interactive walkthrough: start mock daemon, speak, save, stop
+daemon-walkthrough:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    RUNTIME="/tmp/gs-walk-$$"
+    mkdir -p "$RUNTIME"
+    export GENSAY_RUNTIME_DIR="$RUNTIME" GENSAY_SOCKET="$RUNTIME/s.sock"
+    uv run python -m gensay daemon start -p mock --ready-timeout 15
+    uv run python -m gensay daemon status
+    uv run python -m gensay --provider mock --via-daemon "walkthrough speak"
+    uv run python -m gensay --provider mock --via-daemon -o "$RUNTIME/out.txt" --format wav "walkthrough save"
+    test -f "$RUNTIME/out.txt"
+    uv run python -m gensay daemon stop
+    rm -rf "$RUNTIME"
+    echo "✓ daemon walkthrough ok"

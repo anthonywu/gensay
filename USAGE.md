@@ -26,9 +26,19 @@ options:
   --no-progress         Disable progress bars
   --chunk-size CHUNK_SIZE
                         Text chunk size for processing (default: 500)
-  -i INTERACTIVE, --interactive INTERACTIVE
-                        Interactive mode (not implemented)
+  -i, --interactive, --repl
+                        Interactive REPL mode (provider initialized once)
+  --via-daemon          Require warm daemon
+  --no-daemon           Force cold in-process path
+  --auto-daemon         Auto-start daemon if missing (warm-eligible)
   --progress            Show progress meter
+
+Daemon:
+  gensay daemon start [-p PROVIDER]   Start background warm daemon
+  gensay daemon run [-p PROVIDER]     Foreground daemon
+  gensay daemon status [--json]       Show status
+  gensay daemon stop                  Stop daemon
+  gensay daemon restart               Restart daemon
 
 Examples:
   gensay "Hello, world!"

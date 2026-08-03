@@ -21,7 +21,7 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 - **Multiple Audio Formats**: Support for AIFF, WAV, M4A, MP3, CAF, FLAC, AAC, OGG
 - **Background Pre-caching**: Queue and cache audio chunks in the background (Chatterbox only)
 - **Interactive REPL Mode**: Start an interactive session with provider initialized once for repeated use
-- **Named Pipe Listener**: Listen on a FIFO for text input from other processes
+- **Warm Inference Daemon**: Keep local AI models loaded in a background process; ad-hoc `gensay` calls reuse the warm model via a Unix socket
 
 ## Table of Contents
 
@@ -230,12 +230,49 @@ gensay --no-cache "Text" # Disable cache for this run
 
 ### Interactive Modes and Performance Optimization
 
+#### Warm Inference Daemon (recommended for Chatterbox)
+
+Local AI providers (Chatterbox) pay multi-second model load on every process start. The daemon keeps the provider resident; subsequent `gensay` invocations are cheap RPCs over a user-local Unix socket.
+
+```bash
+# Start once per session (preloads model, detaches)
+gensay daemon start -p chatterbox
+
+# Ad-hoc speak — auto-routes to the daemon when provider is warm-eligible
+gensay -p chatterbox "Build finished"
+gensay -p chatterbox "Need your input"
+
+# Force / forbid daemon routing
+gensay --via-daemon -p chatterbox "must use daemon"
+gensay --no-daemon -p chatterbox "cold path this time"
+gensay --auto-daemon -p chatterbox "start daemon if missing"
+
+# Lifecycle
+gensay daemon status
+gensay daemon status --json
+gensay daemon stop
+
+# Foreground (launchd / debugging)
+gensay daemon run -p chatterbox
+```
+
+Environment knobs (twelve-factor):
+
+| Env | Meaning |
+|-----|---------|
+| `GENSAY_RUNTIME_DIR` | Directory for socket + pidfile |
+| `GENSAY_SOCKET` | Explicit socket path |
+| `GENSAY_VIA_DAEMON` | `1` = require daemon |
+| `GENSAY_NO_DAEMON` | `1` = force cold path |
+| `GENSAY_AUTO_DAEMON` | `1` = auto-start when missing |
+| `GENSAY_DAEMON_IDLE_UNLOAD_S` | Unload model after idle seconds (`0` = never) |
+| `GENSAY_DAEMON_IDLE_EXIT_S` | Exit process after idle seconds (`0` = never) |
+
+Socket location defaults to `platformdirs.user_runtime_dir("gensay")` (not `/tmp`).
+
 #### REPL Mode
 
-Start an interactive session where the provider is initialized once and reused for each prompt. This avoids the overhead of re-initializing the provider.
-
-> **Tip:** For Chatterbox and other local AI models, model loading from disk to memory is expensive (several seconds).
-> Use `--repl` or `--listen` mode to load the model once and process many prompts without reloading.
+Start an interactive session where the provider is initialized once and reused for each prompt (in-process; no daemon required).
 
 ```bash
 # Start REPL mode (--repl, --interactive, and -i are all equivalent)
@@ -246,7 +283,7 @@ gensay -i
 # With a specific provider and voice
 gensay --provider openai -v nova --repl
 
-# Chatterbox with REPL (recommended - keeps model loaded)
+# Chatterbox with REPL (keeps model loaded in this terminal)
 gensay -p chatterbox -i
 ```
 
@@ -255,32 +292,6 @@ In REPL mode:
 - Type text and press Enter to speak it
 - Type `exit` or `quit` to exit
 - Press Ctrl+C or Ctrl+D to exit
-
-#### Named Pipe (FIFO) Listener
-
-Listen on a named pipe for text input, allowing other processes to send text to be spoken. Useful for integrating TTS into scripts or other applications.
-
-> **Tip:** Like REPL mode, `--listen` keeps the provider loaded between requests—ideal for Chatterbox and other local models where initialization is slow.
-
-```bash
-# Start listening on default pipe (/tmp/gensay.pipe)
-gensay --listen
-
-# Use a custom pipe path
-gensay --listen /tmp/my-tts.pipe
-
-# With a specific provider (Chatterbox benefits most from persistent mode)
-gensay --provider chatterbox --listen
-gensay --provider polly -v Joanna --listen
-```
-
-From another terminal or script, send text to the pipe:
-
-```bash
-echo "Hello from another process" > /tmp/gensay.pipe
-```
-
-The listener runs until interrupted with Ctrl+C. The named pipe is created automatically if it doesn't exist.
 
 ## Python API
 
