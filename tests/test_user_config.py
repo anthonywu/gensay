@@ -208,3 +208,113 @@ def test_config_cli_get_set(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap
 
     config_main(["get", "provider", "--default", ""])
     assert capsys.readouterr().out.strip() == ""
+
+
+class FakeKeyring:
+    """In-memory stand-in for the keyring module."""
+
+    store: dict[str, str] = {}
+
+    class errors:
+        class KeyringError(Exception):
+            pass
+
+        class PasswordDeleteError(KeyringError):
+            pass
+
+    @classmethod
+    def get_password(cls, service, key):
+        return cls.store.get((service, key))
+
+    @classmethod
+    def set_password(cls, service, key, value):
+        cls.store[(service, key)] = value
+
+    @classmethod
+    def delete_password(cls, service, key):
+        if (service, key) not in cls.store:
+            raise cls.errors.PasswordDeleteError("not found")
+        del cls.store[(service, key)]
+
+
+@pytest.fixture
+def fake_keyring(monkeypatch: pytest.MonkeyPatch):
+    FakeKeyring.store = {}
+    monkeypatch.setattr("gensay.user_config._keyring_module", lambda: FakeKeyring)
+    return FakeKeyring.store
+
+
+def test_secret_set_get_unset_uses_keychain_not_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring
+):
+    path = tmp_path / "config.toml"
+    monkeypatch.setenv("GENSAY_CONFIG", str(path))
+
+    from gensay.user_config import get_config_value, set_config_value, unset_config_value
+
+    set_config_value("elevenlabs.api_key", "sk-test-123")
+
+    assert get_config_value("elevenlabs.api_key") == "sk-test-123"
+    assert get_config_value("elevenlabs.api_key", effective=True) == "sk-test-123"
+    assert fake_keyring[("gensay", "elevenlabs.api_key")] == "sk-test-123"
+
+    # The plaintext config file must never contain the secret
+    if path.is_file():
+        assert "sk-test-123" not in path.read_text(encoding="utf-8")
+
+    assert unset_config_value("elevenlabs.api_key") is True
+    assert get_config_value("elevenlabs.api_key") is None
+    assert unset_config_value("elevenlabs.api_key") is False
+
+
+def test_config_cli_secret_does_not_echo_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
+):
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    from gensay.main import config_main
+
+    config_main(["set", "elevenlabs.api_key", "sk-secret"])
+    out = capsys.readouterr().out
+    assert "sk-secret" not in out
+    assert "keychain" in out
+
+    config_main(["show"])
+    out = capsys.readouterr().out
+    assert "sk-secret" not in out
+    assert "elevenlabs.api_key = (stored in OS keychain)" in out
+
+    config_main(["get", "elevenlabs.api_key"])
+    assert capsys.readouterr().out.strip() == "sk-secret"
+
+
+def test_main_injects_keychain_api_key_into_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring
+):
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    import sys
+
+    from gensay import main as main_mod
+    from gensay.user_config import set_config_value
+
+    set_config_value("elevenlabs.api_key", "sk-from-keychain")
+
+    captured: dict = {}
+
+    class StubProvider:
+        def __init__(self, config):
+            captured["config"] = config
+
+        def speak(self, text, voice=None, rate=None):
+            captured["text"] = text
+
+    stub_providers = dict(main_mod.get_providers())
+    stub_providers["elevenlabs"] = StubProvider
+    monkeypatch.setattr(main_mod, "get_providers", lambda: stub_providers)
+    monkeypatch.setattr(sys, "argv", ["gensay", "-p", "elevenlabs", "hello"])
+
+    main_mod.main()
+
+    assert captured["config"].extra["api_key"] == "sk-from-keychain"
+    assert captured["text"] == "hello"

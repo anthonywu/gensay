@@ -6,6 +6,10 @@ Precedence for CLI defaults (highest wins):
   3. User config file (this module)
   4. Built-in platform defaults
 
+Provider secrets (``<provider>.api_key`` keys) are stored in the OS keychain
+via the ``keyring`` package — never in the plaintext TOML file. The provider's
+own env var (e.g. ELEVENLABS_API_KEY) still takes precedence at runtime.
+
 Config path (override with GENSAY_CONFIG):
   Linux:   $XDG_CONFIG_HOME/gensay/config.toml  (~/.config/gensay/config.toml)
   macOS:   ~/Library/Application Support/gensay/config.toml
@@ -65,9 +69,57 @@ KEY_TYPES: dict[str, type] = {
     "daemon.idle_unload_s": float,
     "daemon.idle_exit_s": float,
     "daemon.ready_timeout": float,
+    "elevenlabs.api_key": str,
 }
 
 KNOWN_KEYS = tuple(sorted(KEY_TYPES))
+
+KEYRING_SERVICE = "gensay"
+
+
+def is_secret_key(key: str) -> bool:
+    """Keys whose values live in the OS keychain, never the config file."""
+    return key.endswith(".api_key")
+
+
+def _keyring_module():
+    try:
+        import keyring
+    except ImportError as e:
+        raise ConfigValueError(
+            "secret storage requires the 'keyring' package; "
+            "install it with the provider extra, e.g. pip install 'gensay[elevenlabs]'"
+        ) from e
+    return keyring
+
+
+def get_secret(key: str) -> str | None:
+    """Read a secret from the OS keychain; None if unset or backend unavailable."""
+    kr = _keyring_module()
+    try:
+        return kr.get_password(KEYRING_SERVICE, key)
+    except kr.errors.KeyringError as e:
+        raise ConfigValueError(f"could not read {key!r} from OS keychain: {e}") from e
+
+
+def set_secret(key: str, value: str) -> None:
+    kr = _keyring_module()
+    try:
+        kr.set_password(KEYRING_SERVICE, key, value)
+    except kr.errors.KeyringError as e:
+        raise ConfigValueError(f"could not store {key!r} in OS keychain: {e}") from e
+
+
+def delete_secret(key: str) -> bool:
+    """Remove a secret from the OS keychain. Returns True if it was present."""
+    kr = _keyring_module()
+    try:
+        kr.delete_password(KEYRING_SERVICE, key)
+    except kr.errors.PasswordDeleteError:
+        return False
+    except kr.errors.KeyringError as e:
+        raise ConfigValueError(f"could not delete {key!r} from OS keychain: {e}") from e
+    return True
 
 
 @dataclass
@@ -295,6 +347,10 @@ EXAMPLE_CONFIG = """\
 # idle_unload_s = 0
 # idle_exit_s = 0
 # ready_timeout = 120
+
+# Provider API keys are NOT stored here. They go to the OS keychain:
+#   gensay config set elevenlabs.api_key '<your-key>'
+# ELEVENLABS_API_KEY env var (or .env) still takes precedence at runtime.
 """
 
 
@@ -419,9 +475,7 @@ def parse_config_value(key: str, raw: str) -> Any:
     """Parse a CLI string into the typed value for ``key``."""
     key = normalize_key(key)
     if key not in KEY_TYPES:
-        raise ConfigKeyError(
-            f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}"
-        )
+        raise ConfigKeyError(f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}")
     typ = KEY_TYPES[key]
     text = raw.strip()
     if typ is bool:
@@ -457,9 +511,9 @@ def get_config_value(
     """
     key = normalize_key(key)
     if key not in KEY_TYPES:
-        raise ConfigKeyError(
-            f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}"
-        )
+        raise ConfigKeyError(f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}")
+    if is_secret_key(key):
+        return get_secret(key)
 
     if effective:
         cfg = resolve_user_config(path)
@@ -473,9 +527,7 @@ def set_config_value(key: str, value: str | Any, *, path: Path | None = None) ->
     """Set one key and persist. ``value`` may be a string (parsed) or typed value."""
     key = normalize_key(key)
     if key not in KEY_TYPES:
-        raise ConfigKeyError(
-            f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}"
-        )
+        raise ConfigKeyError(f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}")
     parsed = parse_config_value(key, value) if isinstance(value, str) else value
     # type check
     expected = KEY_TYPES[key]
@@ -488,6 +540,10 @@ def set_config_value(key: str, value: str | Any, *, path: Path | None = None) ->
         # allow int for float already handled
         raise ConfigValueError(f"{key} expects {expected.__name__}")
 
+    if is_secret_key(key):
+        set_secret(key, parsed)
+        return parsed
+
     data = load_raw_dict(path)
     _dict_set_dotted(data, key, parsed)
     save_raw_dict(data, path)
@@ -498,9 +554,9 @@ def unset_config_value(key: str, *, path: Path | None = None) -> bool:
     """Remove one key from file. Returns True if it was present."""
     key = normalize_key(key)
     if key not in KEY_TYPES:
-        raise ConfigKeyError(
-            f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}"
-        )
+        raise ConfigKeyError(f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}")
+    if is_secret_key(key):
+        return delete_secret(key)
     data = load_raw_dict(path)
     removed = _dict_del_dotted(data, key)
     if removed:

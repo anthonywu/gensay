@@ -48,6 +48,7 @@ Config (per-user defaults, XDG/platformdirs):
   gensay config get KEY [--effective] [--default VAL]
   gensay config set KEY VALUE...
   gensay config unset KEY
+  # <provider>.api_key keys are stored in the OS keychain, not the TOML file
 
 Examples:
   gensay "Hello, world!"

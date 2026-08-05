@@ -312,6 +312,18 @@ idle_unload_s = 0
 
 After that, `gensay "Build finished"` uses chatterbox (and auto-starts the warm daemon if configured) without repeating flags.
 
+#### Provider API keys
+
+`<provider>.api_key` keys are secrets: `config set` stores them in the **OS keychain** (via `keyring`), never in the plaintext TOML file.
+
+```bash
+gensay config set elevenlabs.api_key '<your-key>'   # → Keychain/Secret Service
+gensay config show    # prints "elevenlabs.api_key = (stored in OS keychain)"
+gensay config unset elevenlabs.api_key              # removes from keychain
+```
+
+Runtime precedence: provider env var (`ELEVENLABS_API_KEY`, also via `.env`) > OS keychain.
+
 #### REPL Mode
 
 Start an interactive session where the provider is initialized once and reused for each prompt (in-process; no daemon required).

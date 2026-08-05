@@ -663,13 +663,25 @@ def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
     if args.config_cmd == "show":
         cfg = load_user_config() if args.file_only else resolve_user_config()
         data = cfg.as_public_dict()
+        from .user_config import get_secret, is_secret_key
+
+        try:
+            secrets = sorted(
+                k for k in KNOWN_KEYS if is_secret_key(k) and get_secret(k) is not None
+            )
+        except ConfigValueError:
+            secrets = []  # keyring unavailable
         meta = {
             "path": str(cfg.path) if cfg.path else None,
             "exists": bool(cfg.path and cfg.path.is_file()),
             "loaded": cfg.loaded,
         }
         if args.as_json:
-            print(json.dumps({"meta": meta, "defaults": data}, indent=2))
+            print(
+                json.dumps(
+                    {"meta": meta, "defaults": data, "secrets_in_keychain": secrets}, indent=2
+                )
+            )
         else:
             print(f"path: {meta['path']}")
             print(f"exists: {meta['exists']}")
@@ -685,6 +697,8 @@ def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
                             print(f"    {dk} = {dv!r}")
                     else:
                         print(f"  {k} = {v!r}")
+            for k in secrets:
+                print(f"  {k} = (stored in OS keychain)")
         return
 
     if args.config_cmd == "init":
@@ -724,6 +738,11 @@ def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
         except (ConfigKeyError, ConfigValueError) as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
+        from .user_config import is_secret_key
+
+        if is_secret_key(args.key):
+            print(f"set {args.key} (stored in OS keychain)")
+            return
         path = default_config_path()
         shown = ("true" if parsed else "false") if isinstance(parsed, bool) else parsed
         print(f"set {args.key} = {shown}")
@@ -740,8 +759,11 @@ def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
         if removed:
+            from .user_config import is_secret_key
+
             print(f"unset {args.key}")
-            print(f"wrote {default_config_path()}")
+            if not is_secret_key(args.key):
+                print(f"wrote {default_config_path()}")
         else:
             print(f"key {args.key!r} was not set", file=sys.stderr)
             sys.exit(1)
@@ -907,6 +929,16 @@ def main():  # noqa: C901
             "chunk_size": args.chunk_size,
         },
     )
+
+    # Provider API keys come from the OS keychain (never the config file).
+    # Precedence inside providers: provider env var (e.g. ELEVENLABS_API_KEY) > keychain.
+    from .user_config import KNOWN_KEYS, get_secret, is_secret_key
+
+    api_key_name = f"{args.provider}.api_key"
+    if api_key_name in KNOWN_KEYS and is_secret_key(api_key_name):
+        with contextlib.suppress(Exception):
+            if secret := get_secret(api_key_name):
+                config.extra["api_key"] = secret
 
     if args.provider == "chatterbox":
         print(

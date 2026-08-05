@@ -55,7 +55,7 @@ chatterbox = [
     "torch>=2.6,<3.0",
     "torchaudio>=2.6,<3.0",
 ]
-elevenlabs = ["elevenlabs[pyaudio]>=2.0,<3.0"]
+elevenlabs = ["elevenlabs[pyaudio]>=2.0,<3.0", "keyring>=25.0,<26"]
 # Audio format conversion
 audio-formats = ["pydub>=0.25.0", "ffmpeg-python>=0.2.0"]
 # All optional dependencies
