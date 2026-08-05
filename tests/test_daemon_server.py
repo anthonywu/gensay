@@ -128,3 +128,130 @@ def test_shutdown(daemon_paths: DaemonPaths):
         time.sleep(0.05)
     thread.join(timeout=3.0)
     assert not client.is_running()
+
+
+def _run_server(daemon_paths: DaemonPaths, provider: MockProvider, **server_kw):
+    """Start a server inline (for tests needing custom idle/preload settings)."""
+    server = DaemonServer(provider, provider_name="mock", paths=daemon_paths, **server_kw)
+    thread = threading.Thread(target=server.start, daemon=True)
+    thread.start()
+    client = DaemonClient(daemon_paths)
+    return server, thread, client
+
+
+def _teardown(server, thread, client):
+    server.stop()
+    thread.join(timeout=3.0)
+    assert not client.is_running()
+
+
+def _wait_for(cond, timeout_s: float = 4.0, msg: str = "condition not met") -> None:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if cond():
+            return
+        time.sleep(0.05)
+    raise AssertionError(msg)
+
+
+def test_idle_unload_releases_model_and_rewarms_on_demand(daemon_paths: DaemonPaths):
+    config = TTSConfig(extra={"simulate_delay": False, "show_progress": False})
+    provider = MockProvider(config)
+    server, thread, client = _run_server(daemon_paths, provider, preload=True, idle_unload_s=0.5)
+    client.wait_until_ready(timeout_s=5.0, require_model=True)
+    assert provider.warmup_calls == 1
+
+    _wait_for(lambda: provider.unload_calls == 1, msg="model should unload when idle")
+    assert server.model_loaded is False
+
+    client.speak("hello again")
+    assert provider.warmup_calls == 2  # re-warmed on demand
+
+    _teardown(server, thread, client)
+
+
+def test_idle_exit_stops_server_process(daemon_paths: DaemonPaths):
+    config = TTSConfig(extra={"simulate_delay": False, "show_progress": False})
+    provider = MockProvider(config)
+    server, thread, client = _run_server(daemon_paths, provider, preload=False, idle_exit_s=0.5)
+    client.wait_until_ready(timeout_s=5.0)
+
+    def gone():
+        return not client.is_running()
+
+    _wait_for(gone, msg="server should exit itself when idle")
+    thread.join(timeout=3.0)
+
+
+def test_malformed_frame_gets_bad_request(daemon_paths: DaemonPaths):
+    import socket as pysock
+
+    from gensay.daemon.protocol import read_frame, write_frame
+
+    config = TTSConfig(extra={"simulate_delay": False, "show_progress": False})
+    provider = MockProvider(config)
+    server, thread, client = _run_server(daemon_paths, provider, preload=True)
+    client.wait_until_ready(timeout_s=5.0)
+    try:
+        # valid framing, unknown command
+        raw = pysock.socket(pysock.AF_UNIX, pysock.SOCK_STREAM)
+        raw.settimeout(2.0)
+        raw.connect(str(daemon_paths.socket))
+        write_frame(raw, {"v": 1, "id": "t1", "cmd": "explode"})
+        resp = read_frame(raw)
+        raw.close()
+        assert resp["ok"] is False
+        assert resp["error"]["code"] == "bad_request"
+
+        # invalid JSON payload
+        raw = pysock.socket(pysock.AF_UNIX, pysock.SOCK_STREAM)
+        raw.settimeout(2.0)
+        raw.connect(str(daemon_paths.socket))
+        raw.sendall(b"\x00\x00\x00\x04garb")
+        resp = read_frame(raw)
+        raw.close()
+        assert resp["ok"] is False
+        assert resp["error"]["code"] == "bad_request"
+    finally:
+        _teardown(server, thread, client)
+
+
+def test_speak_inference_error_surfaces_as_rpc_error(running_daemon):
+    _server, client, provider = running_daemon
+
+    def boom(text, voice=None, rate=None):
+        raise RuntimeError("synthesis exploded")
+
+    provider.speak = boom
+    with pytest.raises(DaemonRPCError, match="inference_error"):
+        client.speak("boom")
+
+
+def test_speak_not_loaded_when_warmup_fails(daemon_paths: DaemonPaths):
+    config = TTSConfig(extra={"simulate_delay": False, "show_progress": False})
+    provider = MockProvider(config)
+    provider.warmup = lambda: (_ for _ in ()).throw(RuntimeError("cannot load model"))
+    server, thread, client = _run_server(daemon_paths, provider, preload=False)
+    client.wait_until_ready(timeout_s=5.0, require_model=False)
+    try:
+        with pytest.raises(DaemonRPCError, match="not_loaded"):
+            client.speak("hello")
+    finally:
+        _teardown(server, thread, client)
+
+
+def test_start_raises_when_socket_already_listening(daemon_paths: DaemonPaths):
+    import socket as pysock
+
+    blocker = pysock.socket(pysock.AF_UNIX, pysock.SOCK_STREAM)
+    blocker.bind(str(daemon_paths.socket))
+    blocker.listen(1)
+    try:
+        config = TTSConfig(extra={"simulate_delay": False, "show_progress": False})
+        server = DaemonServer(
+            MockProvider(config), provider_name="mock", paths=daemon_paths, preload=False
+        )
+        with pytest.raises(RuntimeError, match="already listening"):
+            server.start()
+    finally:
+        blocker.close()
