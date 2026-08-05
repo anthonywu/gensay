@@ -22,6 +22,7 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 - **Background Pre-caching**: Queue and cache audio chunks in the background (Chatterbox only)
 - **Interactive REPL Mode**: Start an interactive session with provider initialized once for repeated use
 - **Warm Inference Daemon**: Keep local AI models loaded in a background process; ad-hoc `gensay` calls reuse the warm model via a Unix socket
+- **Offline Resilience**: Cloud providers (ElevenLabs, OpenAI, Polly) automatically fall back to macOS `say` when the network is unreachable
 
 ## Table of Contents
 

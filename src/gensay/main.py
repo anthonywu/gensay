@@ -24,6 +24,9 @@ PROVIDER_NAMES = ["chatterbox", "elevenlabs", "macos", "mock", "openai", "polly"
 # Providers with expensive process-local state — prefer daemon when available
 WARM_ELIGIBLE_PROVIDERS = frozenset({"chatterbox"})
 
+# Network-dependent providers — get offline fallback to macos `say`
+CLOUD_PROVIDERS = frozenset({"elevenlabs", "openai", "polly"})
+
 
 def get_providers() -> dict:
     """Lazily import and return provider classes."""
@@ -964,6 +967,18 @@ def main():  # noqa: C901
     except Exception as e:
         print(f"Error initializing {args.provider} provider: {e}", file=sys.stderr)
         sys.exit(1)
+
+    # Offline resilience: network-dependent providers fall back to local `say`
+    if args.provider in CLOUD_PROVIDERS and sys.platform == "darwin":
+        from dataclasses import replace
+
+        from .fallback import NetworkFallbackProvider
+
+        provider = NetworkFallbackProvider(
+            provider,
+            lambda: providers["macos"](replace(config, voice=None)),
+            primary_name=args.provider,
+        )
 
     if args.list_voices:
         list_voices(provider)

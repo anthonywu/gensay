@@ -306,6 +306,7 @@ def test_main_injects_keychain_api_key_into_provider(
 
     class StubProvider:
         def __init__(self, config):
+            self.config = config
             captured["config"] = config
 
         def speak(self, text, voice=None, rate=None):
