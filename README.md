@@ -65,7 +65,7 @@ nix-env -iA nixpkgs.portaudio
 uv tool install gensay
 
 # With extras: ElevenLabs provider (requires PortAudio, see above)
-pip install 'gensay[elevenlabs]'
+uv tool install 'gensay[elevenlabs]'
 
 # With extras: Chatterbox provider (local Text-to-Speech model, ~2GB PyTorch dependencies)
 uv tool install 'gensay[chatterbox]' \
