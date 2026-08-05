@@ -20,6 +20,11 @@ except ImportError:
 from ..cache import TTSCache
 from .base import AudioFormat, TTSConfig, TTSProvider
 
+# eleven_monolingual_v1 / eleven_multilingual_v1 were retired by ElevenLabs.
+# Flash is the right default for a notification tool (lowest latency).
+# Override per-user: gensay config set elevenlabs.model eleven_v3
+DEFAULT_MODEL = "eleven_flash_v2_5"
+
 
 class ElevenLabsProvider(TTSProvider):
     """TTS provider using ElevenLabs API."""
@@ -81,7 +86,8 @@ class ElevenLabsProvider(TTSProvider):
                     voice_id=voice_id,
                     text=text,
                     voice_settings=voice_settings,
-                    model_id="eleven_monolingual_v1",
+                    model_id=(self.config.extra.get("model") if self.config else None)
+                    or DEFAULT_MODEL,
                 )
 
                 # Convert to bytes for caching
@@ -139,7 +145,8 @@ class ElevenLabsProvider(TTSProvider):
                     voice_id=voice_id,
                     text=text,
                     voice_settings=voice_settings,
-                    model_id="eleven_monolingual_v1",
+                    model_id=(self.config.extra.get("model") if self.config else None)
+                    or DEFAULT_MODEL,
                     output_format=el_format,
                 )
 

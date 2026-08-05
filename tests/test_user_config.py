@@ -173,6 +173,8 @@ def test_config_set_invalid_key_and_value(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "c.toml"))
     with pytest.raises(ConfigKeyError):
         set_config_value("not_a_key", "x")
+    with pytest.raises(ConfigKeyError, match=r"did you mean: elevenlabs.api_key"):
+        set_config_value("elevenlabbs.api_key", "sk-x")
     with pytest.raises(ConfigValueError):
         set_config_value("auto_daemon", "maybe")
     with pytest.raises(ConfigValueError):

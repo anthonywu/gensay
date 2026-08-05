@@ -19,6 +19,7 @@ Config path (override with GENSAY_CONFIG):
 from __future__ import annotations
 
 import contextlib
+import difflib
 import os
 import sys
 import tomllib
@@ -70,6 +71,7 @@ KEY_TYPES: dict[str, type] = {
     "daemon.idle_exit_s": float,
     "daemon.ready_timeout": float,
     "elevenlabs.api_key": str,
+    "elevenlabs.model": str,
 }
 
 KNOWN_KEYS = tuple(sorted(KEY_TYPES))
@@ -375,6 +377,13 @@ class ConfigKeyError(KeyError):
     """Unknown or invalid config key."""
 
 
+def _unknown_key_error(key: str) -> ConfigKeyError:
+    msg = f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}"
+    if matches := difflib.get_close_matches(key, KNOWN_KEYS, n=3, cutoff=0.6):
+        msg += f"\ndid you mean: {', '.join(matches)}?"
+    return ConfigKeyError(msg)
+
+
 class ConfigValueError(ValueError):
     """Invalid config value for key type."""
 
@@ -475,7 +484,7 @@ def parse_config_value(key: str, raw: str) -> Any:
     """Parse a CLI string into the typed value for ``key``."""
     key = normalize_key(key)
     if key not in KEY_TYPES:
-        raise ConfigKeyError(f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}")
+        raise _unknown_key_error(key)
     typ = KEY_TYPES[key]
     text = raw.strip()
     if typ is bool:
@@ -511,7 +520,7 @@ def get_config_value(
     """
     key = normalize_key(key)
     if key not in KEY_TYPES:
-        raise ConfigKeyError(f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}")
+        raise _unknown_key_error(key)
     if is_secret_key(key):
         return get_secret(key)
 
@@ -527,7 +536,7 @@ def set_config_value(key: str, value: str | Any, *, path: Path | None = None) ->
     """Set one key and persist. ``value`` may be a string (parsed) or typed value."""
     key = normalize_key(key)
     if key not in KEY_TYPES:
-        raise ConfigKeyError(f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}")
+        raise _unknown_key_error(key)
     parsed = parse_config_value(key, value) if isinstance(value, str) else value
     # type check
     expected = KEY_TYPES[key]
@@ -554,7 +563,7 @@ def unset_config_value(key: str, *, path: Path | None = None) -> bool:
     """Remove one key from file. Returns True if it was present."""
     key = normalize_key(key)
     if key not in KEY_TYPES:
-        raise ConfigKeyError(f"unknown key {key!r}; known keys: {', '.join(KNOWN_KEYS)}")
+        raise _unknown_key_error(key)
     if is_secret_key(key):
         return delete_secret(key)
     data = load_raw_dict(path)

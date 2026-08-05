@@ -930,15 +930,21 @@ def main():  # noqa: C901
         },
     )
 
-    # Provider API keys come from the OS keychain (never the config file).
-    # Precedence inside providers: provider env var (e.g. ELEVENLABS_API_KEY) > keychain.
-    from .user_config import KNOWN_KEYS, get_secret, is_secret_key
+    # Provider-scoped config: "<provider>.api_key" from OS keychain (never the file),
+    # other "<provider>.<sub>" keys from config.toml → TTSConfig.extra.
+    from .user_config import KNOWN_KEYS, get_config_value, get_secret, is_secret_key
 
-    api_key_name = f"{args.provider}.api_key"
-    if api_key_name in KNOWN_KEYS and is_secret_key(api_key_name):
-        with contextlib.suppress(Exception):
-            if secret := get_secret(api_key_name):
-                config.extra["api_key"] = secret
+    for cfg_key in KNOWN_KEYS:
+        if not cfg_key.startswith(prefix := f"{args.provider}."):
+            continue
+        sub = cfg_key[len(prefix) :]
+        if is_secret_key(cfg_key):
+            # Providers check their own env var (e.g. ELEVENLABS_API_KEY) first
+            with contextlib.suppress(Exception):
+                if secret := get_secret(cfg_key):
+                    config.extra[sub] = secret
+        elif (val := get_config_value(cfg_key)) is not None:
+            config.extra[sub] = val
 
     if args.provider == "chatterbox":
         print(
