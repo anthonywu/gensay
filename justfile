@@ -74,8 +74,8 @@ build: clean
     uv build
 
 publish:
-    @test -z "${UV_PUBLISH_TOKEN:-}" && echo "Set UV_PUBLISH_TOKEN in env to publish" && false
-    uv publish --token $UV_PUBLISH_TOKEN
+    @test -n "${UV_PUBLISH_TOKEN:-}" || { echo "error: set UV_PUBLISH_TOKEN in env to publish" >&2; exit 1; }
+    uv publish --token "$UV_PUBLISH_TOKEN"
 
 # Full release: test matrix, tag v<version>, push tag, publish to PyPI, GitHub release
 release:
@@ -83,11 +83,16 @@ release:
     set -euo pipefail
     version="$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)"
     test "$(git branch --show-current)" = "main" || { echo "error: release only from main"; exit 1; }
-    git diff --quiet && git diff --cached --quiet || { echo "error: working tree not clean"; exit 1; }
-    test -z "$(git tag -l "v$version")" || { echo "error: tag v$version already exists"; exit 1; }
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "warning: working tree not clean — an ops/release fix may be in progress"
+        git status --short
+        read -r -p "Continue release anyway? [y/N] " reply || { echo "aborted (no input)"; exit 1; }
+        [[ "$reply" =~ ^[Yy]$ ]] || { echo "aborted"; exit 1; }
+    fi
+    test -z "$(git tag -l "v$version")" || echo "warning: tag v$version already exists; skipping tag creation"
     just test
     just build
-    git tag -a "v$version" -m "gensay $version"
+    test -n "$(git tag -l "v$version")" || git tag -a "v$version" -m "gensay $version"
     git push origin "v$version"
     just publish
     gh release create "v$version" --title "gensay $version" --generate-notes
