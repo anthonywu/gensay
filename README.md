@@ -239,6 +239,19 @@ Local AI providers (Chatterbox) pay multi-second model load on every process sta
 
 Cloud providers (ElevenLabs, OpenAI, Polly) are intentionally not hostable in the daemon — their client init is milliseconds, so there is nothing worth keeping warm.
 
+#### Defaults: daemon vs user config
+
+When [user config](#user-config-per-user-defaults) and the daemon meet, resolution is:
+
+| Situation | Result |
+|---|---|
+| `daemon start` without `-p` | Provider from `daemon.provider` config key → top-level `provider` config (if daemon-hostable) → `chatterbox`. A cloud speak-default (e.g. `provider = "elevenlabs"`) is **ignored** here. |
+| Bare `gensay "…"` with a cloud default provider | Cloud provider speaks directly (cold path); warm routing only engages for warm-eligible providers. |
+| `--via-daemon` / warm routing without explicit `-p` | The running daemon decides. If your configured provider default differs, gensay prints a warning and forwards the request with no provider assertion. |
+| `--via-daemon` with explicit `-p` | The provider is asserted; a daemon hosting a different one answers `provider_mismatch` (the fail-loud path for "you really meant it"). |
+
+Rule of thumb: **config picks your defaults, `-p` makes a claim, the daemon's resident model wins unless you make a claim.**
+
 ```bash
 # Start once per session (preloads model, detaches)
 gensay daemon start -p chatterbox
