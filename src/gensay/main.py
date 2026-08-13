@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .providers.base import TTSProvider
 
 # Provider names for argparse choices (avoid importing heavy modules at top level)
-PROVIDER_NAMES = ["chatterbox", "elevenlabs", "macos", "mock", "openai", "polly"]
+PROVIDER_NAMES = ["chatterbox", "deepgram", "elevenlabs", "macos", "mock", "openai", "polly"]
 
 # Providers with expensive process-local state — prefer daemon when available
 WARM_ELIGIBLE_PROVIDERS = frozenset({"chatterbox"})
@@ -29,7 +29,7 @@ WARM_ELIGIBLE_PROVIDERS = frozenset({"chatterbox"})
 DAEMON_HOSTABLE_PROVIDERS = frozenset({"chatterbox", "mock"})
 
 # Network-dependent providers — get offline fallback to macos `say`
-CLOUD_PROVIDERS = frozenset({"elevenlabs", "openai", "polly"})
+CLOUD_PROVIDERS = frozenset({"deepgram", "elevenlabs", "openai", "polly"})
 
 
 def get_providers() -> dict:
@@ -37,6 +37,7 @@ def get_providers() -> dict:
     from .providers import (
         AmazonPollyProvider,
         ChatterboxProvider,
+        DeepgramProvider,
         ElevenLabsProvider,
         MacOSSayProvider,
         MockProvider,
@@ -45,6 +46,7 @@ def get_providers() -> dict:
 
     return {
         "chatterbox": ChatterboxProvider,
+        "deepgram": DeepgramProvider,
         "elevenlabs": ElevenLabsProvider,
         "macos": MacOSSayProvider,
         "mock": MockProvider,

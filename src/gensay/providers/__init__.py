@@ -12,6 +12,10 @@ def __getattr__(name: str):
         from .chatterbox import ChatterboxProvider
 
         return ChatterboxProvider
+    elif name == "DeepgramProvider":
+        from .deepgram import DeepgramProvider
+
+        return DeepgramProvider
     elif name == "ElevenLabsProvider":
         from .elevenlabs import ElevenLabsProvider
 
@@ -41,6 +45,7 @@ __all__ = [
     "AudioFormat",
     "ProgressCallback",
     "ChatterboxProvider",
+    "DeepgramProvider",
     "MacOSSayProvider",
     "MockProvider",
     "OpenAIProvider",
