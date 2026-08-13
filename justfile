@@ -20,9 +20,13 @@ setup:
     (uv pip tree | grep chatterbox) || uv pip install git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
     uv pip install --editable '.[chatterbox,elevenlabs]'
 
-# Run all tests
+# Run full test matrix across supported Python versions (3.11-3.13) via nox
 test:
-    uv run pytest -v
+    uv run nox
+
+# Fast single-version test loop (current interpreter)
+test-fast *ARGS:
+    uv run pytest -q {{ARGS}}
 
 # Run tests with coverage
 test-cov:
