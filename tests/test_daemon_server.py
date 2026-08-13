@@ -95,6 +95,9 @@ def test_provider_mismatch(running_daemon):
     with pytest.raises(DaemonRPCError) as ei:
         client.speak("x", provider="chatterbox")
     assert ei.value.code == "provider_mismatch"
+    assert "active gensay daemon hosting 'mock'" in ei.value.message
+    assert "drop -p/--provider" in ei.value.message
+    assert "gensay daemon restart -p chatterbox" in ei.value.message
 
 
 def test_bad_request_missing_text(running_daemon):

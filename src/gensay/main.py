@@ -659,7 +659,11 @@ def _try_daemon_speak_or_save(args, text: str) -> bool:  # noqa: C901
             )
         return True
     except DaemonRPCError as e:
-        print(f"Error: daemon RPC failed: {e}", file=sys.stderr)
+        if e.code == "provider_mismatch":
+            # Message is already human-centered; skip the machine-y code prefix
+            print(f"Error: {e.message}", file=sys.stderr)
+        else:
+            print(f"Error: daemon RPC failed: {e}", file=sys.stderr)
         sys.exit(1)
     except DaemonNotRunning:
         if mode == "require":

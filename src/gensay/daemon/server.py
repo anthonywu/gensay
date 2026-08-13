@@ -266,8 +266,11 @@ class DaemonServer:
                 return DaemonResponse.failure(
                     req,
                     "provider_mismatch",
-                    f"daemon provider is {self.provider_name!r}, request asked for {req.provider!r}; "
-                    f"restart daemon with -p {req.provider}",
+                    f"You have an active gensay daemon hosting {self.provider_name!r}, but this "
+                    f"request asked for {req.provider!r}. In daemon mode the hosted provider "
+                    f"wins: drop -p/--provider (or your configured provider default) to use "
+                    f"{self.provider_name!r}, or restart the daemon with "
+                    f"`gensay daemon restart -p {req.provider}`.",
                 )
             if not req.text:
                 return DaemonResponse.failure(req, "bad_request", "text is required")
