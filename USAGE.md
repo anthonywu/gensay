@@ -50,6 +50,15 @@ Config (per-user defaults, XDG/platformdirs):
   gensay config unset KEY
   # <provider>.api_key keys are stored in the OS keychain, not the TOML file
 
+Cloud provider credentials (env vars take precedence; see README for full setup):
+  ElevenLabs:   export ELEVENLABS_API_KEY   (or once: gensay config set elevenlabs.api_key → OS keychain)
+  OpenAI:       export OPENAI_API_KEY
+  Amazon Polly: aws login --region us-west-2            # desktop: opens browser to authorize
+                aws login --region us-west-2 --remote   # headless: prints a URL to visit
+                # Updates your default AWS profile with IAM user credentials.
+                # Tip: sign in to the AWS console in your browser FIRST so the
+                # authorization above completes without a fresh console login.
+
 Examples:
   gensay "Hello, world!"
   gensay -v Samantha "Hello from Samantha"
