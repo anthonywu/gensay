@@ -20,6 +20,11 @@ except ImportError:
 from ..cache import TTSCache
 from .base import AudioFormat, TTSConfig, TTSProvider
 
+# eleven_monolingual_v1 / eleven_multilingual_v1 were retired by ElevenLabs.
+# Flash is the right default for a notification tool (lowest latency).
+# Override per-user: gensay config set elevenlabs.model eleven_v3
+DEFAULT_MODEL = "eleven_flash_v2_5"
+
 
 class ElevenLabsProvider(TTSProvider):
     """TTS provider using ElevenLabs API."""
@@ -66,7 +71,8 @@ class ElevenLabsProvider(TTSProvider):
 
         # Get voice settings
         voice_settings = self._get_voice_settings(rate)
-        cache_key = self._get_cache_key(text, voice_id, voice_settings, "mp3_44100_128")
+        model = (self.config.extra.get("model") if self.config else None) or DEFAULT_MODEL
+        cache_key = self._get_cache_key(text, voice_id, voice_settings, "mp3_44100_128", model)
 
         try:
             self.update_progress(0.0, "Checking cache...")
@@ -81,7 +87,7 @@ class ElevenLabsProvider(TTSProvider):
                     voice_id=voice_id,
                     text=text,
                     voice_settings=voice_settings,
-                    model_id="eleven_monolingual_v1",
+                    model_id=model,
                 )
 
                 # Convert to bytes for caching
@@ -124,7 +130,8 @@ class ElevenLabsProvider(TTSProvider):
 
         # Map format to ElevenLabs format
         el_format = self.FORMAT_MAP.get(format, "mp3_44100_128")
-        cache_key = self._get_cache_key(text, voice_id, voice_settings, el_format)
+        model = (self.config.extra.get("model") if self.config else None) or DEFAULT_MODEL
+        cache_key = self._get_cache_key(text, voice_id, voice_settings, el_format, model)
 
         try:
             self.update_progress(0.0, "Checking cache...")
@@ -139,7 +146,7 @@ class ElevenLabsProvider(TTSProvider):
                     voice_id=voice_id,
                     text=text,
                     voice_settings=voice_settings,
-                    model_id="eleven_monolingual_v1",
+                    model_id=model,
                     output_format=el_format,
                 )
 
@@ -261,8 +268,8 @@ class ElevenLabsProvider(TTSProvider):
         )
 
     def _get_cache_key(
-        self, text: str, voice_id: str, voice_settings: "VoiceSettings", format: str
+        self, text: str, voice_id: str, voice_settings: "VoiceSettings", format: str, model: str
     ) -> str:
-        """Generate cache key for text/voice/settings/format combination."""
-        data = f"elevenlabs|{text}|{voice_id}|{voice_settings}|{format}"
+        """Generate cache key for text/voice/settings/format/model combination."""
+        data = f"elevenlabs|{text}|{voice_id}|{voice_settings}|{format}|{model}"
         return hashlib.sha256(data.encode()).hexdigest()

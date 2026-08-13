@@ -7,6 +7,7 @@ import platform
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import wave
 from pathlib import Path
@@ -63,6 +64,76 @@ class FFmpegLibraryError(RuntimeError):
     pass
 
 
+MODEL_REPO_ID = "ResembleAI/chatterbox-turbo"
+MODEL_DOWNLOAD_SIZE_HINT = "~4 GB"
+
+
+class ModelDownloadDeclinedError(RuntimeError):
+    """User declined the initial model download."""
+
+
+def _model_cached(repo_id: str) -> bool:
+    """True if the model snapshot is already in the local HuggingFace cache."""
+    try:
+        from huggingface_hub import snapshot_download
+
+        snapshot_download(repo_id, local_files_only=True)
+        return True
+    except Exception:
+        return False  # cache miss (or offline)
+
+
+def _confirm_model_download() -> None:
+    """Inform + confirm before the first model download; default answer is Yes.
+
+    Non-interactive callers (daemon, pipes) proceed with an stderr note —
+    explicitly choosing chatterbox already implies consent.
+    """
+    if _model_cached(MODEL_REPO_ID):
+        return
+    msg = (
+        f"chatterbox: model '{MODEL_REPO_ID}' not in the local HuggingFace cache; "
+        f"first use downloads {MODEL_DOWNLOAD_SIZE_HINT}. "
+    )
+    if sys.stdin.isatty():
+        ans = input(msg + "Download now? [Y/n] ").strip().lower()
+        if ans and ans not in ("y", "yes"):
+            raise ModelDownloadDeclinedError(
+                "chatterbox model download declined by user; nothing was downloaded"
+            )
+    else:
+        print(msg + "Proceeding (non-interactive).", file=sys.stderr)
+
+
+def reexec_with_ffmpeg_libs_if_needed(provider_name: str = "chatterbox") -> None:
+    """Re-exec the process with FFmpeg libs on DYLD_LIBRARY_PATH, once, if needed.
+
+    TorchCodec resolves FFmpeg dylibs at process start, so setting the env var
+    in-process is too late. Self-heal instead: find the libs, restart with the
+    env fixed, guarded by GENSAY_FFMPEG_REEXEC so we can't loop. No-op for
+    non-chatterbox providers, if not Darwin, FFmpeg not found, or already set.
+    """
+    if provider_name != "chatterbox":
+        return
+    if platform.system() != "Darwin":
+        return
+    if os.environ.get("GENSAY_FFMPEG_REEXEC") == "1":
+        return
+    lib_path = _find_ffmpeg_lib_path()
+    if not lib_path:
+        return
+
+    current = os.environ.get("DYLD_LIBRARY_PATH", "")
+    if lib_path in current.split(":"):
+        return
+
+    env = os.environ.copy()
+    env["DYLD_LIBRARY_PATH"] = f"{lib_path}:{current}" if current else lib_path
+    env["GENSAY_FFMPEG_REEXEC"] = "1"
+    print(f"note: re-executing with FFmpeg libs for chatterbox: {lib_path}", file=sys.stderr)
+    os.execvpe(sys.executable, [sys.executable, "-m", "gensay", *sys.argv[1:]], env)
+
+
 def _check_ffmpeg_libs() -> None:
     """Check that FFmpeg libs are available for TorchCodec.
 
@@ -110,6 +181,27 @@ class ChatterboxProvider(TTSProvider):
         self._device: str = "mps" if platform.system() == "Darwin" else "cuda"
         self._model_loaded = False
 
+    def warmup(self) -> None:
+        """Eagerly load Chatterbox model into memory."""
+        self._load_model()
+
+    def unload(self) -> None:
+        """Drop model tensors to free RAM/VRAM. Next speak reloads."""
+        if not self._model_loaded:
+            return
+        self._tts = None
+        self._ta = None
+        self._model_loaded = False
+        try:
+            import torch
+
+            if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+                torch.mps.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
     def _load_model(self) -> None:
         """Load ChatterboxTurboTTS model (lazy loading)."""
         if self._model_loaded:
@@ -124,6 +216,7 @@ class ChatterboxProvider(TTSProvider):
 
             self._ta = ta
             device = self.config.extra.get("device", self._device) if self.config else self._device
+            _confirm_model_download()
             self._tts = ChatterboxTurboTTS.from_pretrained(device=device)
             self._device = device
             self._model_loaded = True

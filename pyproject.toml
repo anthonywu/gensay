@@ -1,9 +1,9 @@
 [build-system]
-requires = ["uv_build>=0.8.4,<0.10.0"]
+requires = ["uv_build==0.12.3"]
 build-backend = "uv_build"
 
 [project]
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
     "boto3>=1.40.0,<2.0",
     "botocore[crt]>=1.40.0,<2.0",
@@ -31,6 +31,8 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Programming Language :: Python :: Implementation :: CPython",
 ]
 
@@ -55,7 +57,7 @@ chatterbox = [
     "torch>=2.6,<3.0",
     "torchaudio>=2.6,<3.0",
 ]
-elevenlabs = ["elevenlabs[pyaudio]>=2.0,<3.0"]
+elevenlabs = ["elevenlabs[pyaudio]>=2.0,<3.0", "keyring>=25.0,<26"]
 # Audio format conversion
 audio-formats = ["pydub>=0.25.0", "ffmpeg-python>=0.2.0"]
 # All optional dependencies
@@ -64,6 +66,7 @@ all = ["gensay[audio-formats,chatterbox,elevenlabs]"]
 # Development dependencies (PEP 735)
 [dependency-groups]
 dev = [
+    "nox>=2024.10,<2027",
     "pdoc>=15.0,<16",
     "pygments>=2.19,<3.0",
     "pytest>=8.0.0",

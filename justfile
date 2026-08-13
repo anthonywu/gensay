@@ -20,9 +20,13 @@ setup:
     (uv pip tree | grep chatterbox) || uv pip install git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
     uv pip install --editable '.[chatterbox,elevenlabs]'
 
-# Run all tests
+# Run full test matrix across supported Python versions (3.11-3.13) via nox
 test:
-    uv run pytest -v
+    uv run nox
+
+# Fast single-version test loop (current interpreter)
+test-fast *ARGS:
+    uv run pytest -q {{ARGS}}
 
 # Run tests with coverage
 test-cov:
@@ -72,6 +76,22 @@ build: clean
 publish:
     @test -z "${UV_PUBLISH_TOKEN:-}" && echo "Set UV_PUBLISH_TOKEN in env to publish" && false
     uv publish --token $UV_PUBLISH_TOKEN
+
+# Full release: test matrix, tag v<version>, push tag, publish to PyPI, GitHub release
+release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version="$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)"
+    test "$(git branch --show-current)" = "main" || { echo "error: release only from main"; exit 1; }
+    git diff --quiet && git diff --cached --quiet || { echo "error: working tree not clean"; exit 1; }
+    test -z "$(git tag -l "v$version")" || { echo "error: tag v$version already exists"; exit 1; }
+    just test
+    just build
+    git tag -a "v$version" -m "gensay $version"
+    git push origin "v$version"
+    just publish
+    gh release create "v$version" --title "gensay $version" --generate-notes
+    echo "✓ gensay $version released (tag + PyPI + GitHub release)"
 
 # Run the CLI with mock provider
 run-mock *ARGS:
@@ -202,3 +222,23 @@ test-matrix:
 # Clean up test-matrix artifacts
 test-matrix-clean:
     rm -rf /tmp/gensay-tool-test-*
+
+# Daemon unit + lifecycle tests (mock provider; no torch)
+test-daemon:
+    uv run pytest tests/test_daemon_protocol.py tests/test_daemon_server.py tests/test_daemon_lifecycle.py -v
+
+# Interactive walkthrough: start mock daemon, speak, save, stop
+daemon-walkthrough:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    RUNTIME="/tmp/gs-walk-$$"
+    mkdir -p "$RUNTIME"
+    export GENSAY_RUNTIME_DIR="$RUNTIME" GENSAY_SOCKET="$RUNTIME/s.sock"
+    uv run python -m gensay daemon start -p mock --ready-timeout 15
+    uv run python -m gensay daemon status
+    uv run python -m gensay --provider mock --via-daemon "walkthrough speak"
+    uv run python -m gensay --provider mock --via-daemon -o "$RUNTIME/out.txt" --format wav "walkthrough save"
+    test -f "$RUNTIME/out.txt"
+    uv run python -m gensay daemon stop
+    rm -rf "$RUNTIME"
+    echo "✓ daemon walkthrough ok"

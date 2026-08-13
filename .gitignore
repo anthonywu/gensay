@@ -6,3 +6,5 @@ docs/*
 
 # Test artifacts (audio files generated during tests)
 tests/artifacts/
+htmlcov/
+.coverage

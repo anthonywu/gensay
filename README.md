@@ -21,7 +21,8 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 - **Multiple Audio Formats**: Support for AIFF, WAV, M4A, MP3, CAF, FLAC, AAC, OGG
 - **Background Pre-caching**: Queue and cache audio chunks in the background (Chatterbox only)
 - **Interactive REPL Mode**: Start an interactive session with provider initialized once for repeated use
-- **Named Pipe Listener**: Listen on a FIFO for text input from other processes
+- **Warm Inference Daemon**: Keep local AI models loaded in a background process; ad-hoc `gensay` calls reuse the warm model via a Unix socket
+- **Offline Resilience**: Cloud providers (ElevenLabs, OpenAI, Polly) automatically fall back to macOS `say` when the network is unreachable
 
 ## Table of Contents
 
@@ -65,7 +66,7 @@ nix-env -iA nixpkgs.portaudio
 uv tool install gensay
 
 # With extras: ElevenLabs provider (requires PortAudio, see above)
-pip install 'gensay[elevenlabs]'
+uv tool install 'gensay[elevenlabs]'
 
 # With extras: Chatterbox provider (local Text-to-Speech model, ~2GB PyTorch dependencies)
 uv tool install 'gensay[chatterbox]' \
@@ -126,7 +127,9 @@ uv pip install git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
 
 #### FFmpeg Library Path (for Chatterbox on macOS)
 
-Chatterbox uses TorchCodec which requires FFmpeg libraries at runtime. On macOS, set `DYLD_LIBRARY_PATH` before running gensay:
+Chatterbox uses TorchCodec which requires FFmpeg libraries **at process start**. Since 0.5.0, gensay self-heals: if FFmpeg is detectable (Nix store or Homebrew), it re-executes itself once with `DYLD_LIBRARY_PATH` set correctly — no manual export needed for `gensay -p chatterbox`, the daemon, or `daemon start` children.
+
+If FFmpeg can't be auto-detected, set it manually:
 
 **Homebrew:**
 
@@ -230,12 +233,118 @@ gensay --no-cache "Text" # Disable cache for this run
 
 ### Interactive Modes and Performance Optimization
 
+#### Warm Inference Daemon (recommended for Chatterbox)
+
+Local AI providers (Chatterbox) pay multi-second model load on every process start. The daemon keeps the provider resident; subsequent `gensay` invocations are cheap RPCs over a user-local Unix socket.
+
+Cloud providers (ElevenLabs, OpenAI, Polly) are intentionally not hostable in the daemon — their client init is milliseconds, so there is nothing worth keeping warm.
+
+#### Defaults: daemon vs user config
+
+When [user config](#user-config-per-user-defaults) and the daemon meet, resolution is:
+
+| Situation | Result |
+|---|---|
+| `daemon start` without `-p` | Provider from `daemon.provider` config key → top-level `provider` config (if daemon-hostable) → `chatterbox`. A cloud speak-default (e.g. `provider = "elevenlabs"`) is **ignored** here. |
+| Bare `gensay "…"` with a cloud default provider | Cloud provider speaks directly (cold path); warm routing only engages for warm-eligible providers. |
+| `--via-daemon` / warm routing without explicit `-p` | The running daemon decides. If your configured provider default differs, gensay prints a warning and forwards the request with no provider assertion. |
+| `--via-daemon` with explicit `-p` | The provider is asserted; a daemon hosting a different one answers `provider_mismatch` (the fail-loud path for "you really meant it"). |
+
+Rule of thumb: **config picks your defaults, `-p` makes a claim, the daemon's resident model wins unless you make a claim.**
+
+```bash
+# Start once per session (preloads model, detaches)
+gensay daemon start -p chatterbox
+
+# Ad-hoc speak — auto-routes to the daemon when provider is warm-eligible
+gensay -p chatterbox "Build finished"
+gensay -p chatterbox "Need your input"
+
+# Force / forbid daemon routing
+gensay --via-daemon -p chatterbox "must use daemon"
+gensay --no-daemon -p chatterbox "cold path this time"
+gensay --auto-daemon -p chatterbox "start daemon if missing"
+
+# Lifecycle
+gensay daemon status
+gensay daemon status --json
+gensay daemon stop
+
+# Foreground (launchd / debugging)
+gensay daemon run -p chatterbox
+```
+
+Environment knobs (twelve-factor):
+
+| Env | Meaning |
+|-----|---------|
+| `GENSAY_RUNTIME_DIR` | Directory for socket + pidfile |
+| `GENSAY_SOCKET` | Explicit socket path |
+| `GENSAY_VIA_DAEMON` | `1` = require daemon |
+| `GENSAY_NO_DAEMON` | `1` = force cold path |
+| `GENSAY_AUTO_DAEMON` | `1` = auto-start when missing |
+| `GENSAY_DAEMON_IDLE_UNLOAD_S` | Unload model after idle seconds (`0` = never) |
+| `GENSAY_DAEMON_IDLE_EXIT_S` | Exit process after idle seconds (`0` = never) |
+
+Socket location defaults to `platformdirs.user_runtime_dir("gensay")` (not `/tmp`).
+
+### User config (per-user defaults)
+
+Bare `gensay "hello"` can pick up preferred flags from a TOML file in the platform config dir (XDG on Linux):
+
+| Platform | Default path |
+|----------|----------------|
+| Linux | `~/.config/gensay/config.toml` (`$XDG_CONFIG_HOME/gensay/…`) |
+| macOS | `~/Library/Application Support/gensay/config.toml` |
+| Override | `GENSAY_CONFIG=/path/to/config.toml` |
+
+**Precedence:** CLI flags > `GENSAY_*` env > config file > built-ins.
+
+```bash
+# Scaffold an annotated example, or set keys directly
+gensay config init
+gensay config path
+gensay config keys
+gensay config set provider chatterbox
+gensay config set auto_daemon true
+gensay config set daemon.provider chatterbox
+gensay config get provider
+gensay config get auto_daemon
+gensay config unset voice
+gensay config show
+gensay config show --json
+```
+
+Example `config.toml`:
+
+```toml
+provider = "chatterbox"
+voice = "default"
+rate = 150
+auto_daemon = true
+
+[daemon]
+provider = "chatterbox"
+idle_unload_s = 0
+```
+
+After that, `gensay "Build finished"` uses chatterbox (and auto-starts the warm daemon if configured) without repeating flags.
+
+#### Provider API keys
+
+`<provider>.api_key` keys are secrets: `config set` stores them in the **OS keychain** (via `keyring`), never in the plaintext TOML file.
+
+```bash
+gensay config set elevenlabs.api_key '<your-key>'   # → Keychain/Secret Service
+gensay config show    # prints "elevenlabs.api_key = (stored in OS keychain)"
+gensay config unset elevenlabs.api_key              # removes from keychain
+```
+
+Runtime precedence: provider env var (`ELEVENLABS_API_KEY`, also via `.env`) > OS keychain.
+
 #### REPL Mode
 
-Start an interactive session where the provider is initialized once and reused for each prompt. This avoids the overhead of re-initializing the provider.
-
-> **Tip:** For Chatterbox and other local AI models, model loading from disk to memory is expensive (several seconds).
-> Use `--repl` or `--listen` mode to load the model once and process many prompts without reloading.
+Start an interactive session where the provider is initialized once and reused for each prompt (in-process; no daemon required).
 
 ```bash
 # Start REPL mode (--repl, --interactive, and -i are all equivalent)
@@ -246,7 +355,7 @@ gensay -i
 # With a specific provider and voice
 gensay --provider openai -v nova --repl
 
-# Chatterbox with REPL (recommended - keeps model loaded)
+# Chatterbox with REPL (keeps model loaded in this terminal)
 gensay -p chatterbox -i
 ```
 
@@ -255,32 +364,6 @@ In REPL mode:
 - Type text and press Enter to speak it
 - Type `exit` or `quit` to exit
 - Press Ctrl+C or Ctrl+D to exit
-
-#### Named Pipe (FIFO) Listener
-
-Listen on a named pipe for text input, allowing other processes to send text to be spoken. Useful for integrating TTS into scripts or other applications.
-
-> **Tip:** Like REPL mode, `--listen` keeps the provider loaded between requests—ideal for Chatterbox and other local models where initialization is slow.
-
-```bash
-# Start listening on default pipe (/tmp/gensay.pipe)
-gensay --listen
-
-# Use a custom pipe path
-gensay --listen /tmp/my-tts.pipe
-
-# With a specific provider (Chatterbox benefits most from persistent mode)
-gensay --provider chatterbox --listen
-gensay --provider polly -v Joanna --listen
-```
-
-From another terminal or script, send text to the pipe:
-
-```bash
-echo "Hello from another process" > /tmp/gensay.pipe
-```
-
-The listener runs until interrupted with Ctrl+C. The named pipe is created automatically if it doesn't exist.
 
 ## Python API
 
@@ -601,6 +684,13 @@ just test-specific tests/test_providers.py::test_mock_provider_speak
 # Quick test (mock provider only)
 just quick-test
 ```
+
+#### Python version support
+
+`just test` runs the nox matrix across **Python 3.11–3.15**.
+
+- **3.15 is best-effort**: verified against a pre-release interpreter (uv-managed 3.15.0a3); expect sharper edges until the final 3.15 release, and avoid claiming stable-grade 3.15 support to end users.
+- **Pre-release Pythons need modern Rust**: on interpreters without published wheels, deps build from source and Rust-backed sdists (e.g. `jiter` via OpenAI) require rustup stable ≥ 1.88 (`rustup update stable`).
 
 #### Code Quality
 
