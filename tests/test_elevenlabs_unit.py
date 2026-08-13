@@ -127,6 +127,23 @@ def test_speak_uses_default_model_and_caches(provider):
     assert call["model_id"] == DEFAULT_MODEL
 
 
+def test_different_models_get_separate_cache_entries(provider, tmp_path):
+    """Same text/voice/format but different model → fresh synthesis (no stale reuse)."""
+    provider.p.speak("shared text", voice="River")  # DEFAULT_MODEL
+    assert len(provider.client.text_to_speech.calls) == 1
+
+    p2 = ElevenLabsProvider(
+        TTSConfig(cache_enabled=True, extra={"api_key": "k", "model": "eleven_v3"})
+    )
+    from gensay.cache import TTSCache
+
+    p2._cache = TTSCache(enabled=True, cache_dir=tmp_path / "cache")  # shared cache dir
+    p2.speak("shared text", voice="River")
+
+    assert len(provider.client.text_to_speech.calls) == 2
+    assert provider.client.text_to_speech.calls[1]["model_id"] == "eleven_v3"
+
+
 def test_speak_chain_preserves_network_cause(provider):
     provider.client.text_to_speech.should_raise = ConnectionError("offline")
     with pytest.raises(RuntimeError, match="ElevenLabs TTS failed") as exc_info:
