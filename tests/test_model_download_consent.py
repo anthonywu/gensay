@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -70,6 +71,8 @@ def test_non_tty_proceeds_with_stderr_note(uncached, monkeypatch: pytest.MonkeyP
 
 def test_load_model_prompts_before_downloading(monkeypatch: pytest.MonkeyPatch, tmp_path):
     """Declining must abort _load_model before any model load happens."""
+    from types import ModuleType
+
     from gensay.providers.base import TTSConfig
     from gensay.providers.chatterbox import ChatterboxProvider
 
@@ -79,6 +82,17 @@ def test_load_model_prompts_before_downloading(monkeypatch: pytest.MonkeyPatch, 
         "_confirm_model_download",
         lambda: (_ for _ in ()).throw(ModelDownloadDeclinedError("declined")),
     )
+
+    # Make heavy imports resolvable in matrix envs (no torch/chatterbox installed)
+    fake_ta = ModuleType("torchaudio")
+    fake_turbo = ModuleType("chatterbox.tts_turbo")
+    fake_turbo.ChatterboxTurboTTS = SimpleNamespace()
+    fake_pkg = ModuleType("chatterbox")
+    fake_pkg.tts_turbo = fake_turbo
+    monkeypatch.setitem(sys.modules, "torchaudio", fake_ta)
+    monkeypatch.setitem(sys.modules, "chatterbox", fake_pkg)
+    monkeypatch.setitem(sys.modules, "chatterbox.tts_turbo", fake_turbo)
+
     p = ChatterboxProvider(TTSConfig(cache_enabled=False))
     with pytest.raises(ModelDownloadDeclinedError):
         p.warmup()

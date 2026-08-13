@@ -180,6 +180,31 @@ def test_elevenlabs_provider(artifacts_dir):
         assert output_path.stat().st_size > 1000, "File should be non-empty"
 
 
+def _aws_ready() -> bool:
+    """AWS region configured and credentials actually usable (not just present).
+
+    Expired SSO/session tokens make get_credentials() return stale objects but
+    STS calls fail — validate with a bounded live sts:GetCallerIdentity.
+    """
+    import os
+
+    if not (os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")):
+        return False
+    try:
+        import boto3
+        from botocore.config import Config
+
+        sts = boto3.client(
+            "sts",
+            config=Config(connect_timeout=2, read_timeout=3, retries={"max_attempts": 1}),
+        )
+        sts.get_caller_identity()
+        return True
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _aws_ready(), reason="AWS region/credentials not configured")
 def test_amazon_polly_provider(artifacts_dir):
     """Test Amazon Polly provider with 2 voices."""
     try:
