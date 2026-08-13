@@ -77,6 +77,22 @@ publish:
     @test -z "${UV_PUBLISH_TOKEN:-}" && echo "Set UV_PUBLISH_TOKEN in env to publish" && false
     uv publish --token $UV_PUBLISH_TOKEN
 
+# Full release: test matrix, tag v<version>, push tag, publish to PyPI, GitHub release
+release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version="$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)"
+    test "$(git branch --show-current)" = "main" || { echo "error: release only from main"; exit 1; }
+    git diff --quiet && git diff --cached --quiet || { echo "error: working tree not clean"; exit 1; }
+    test -z "$(git tag -l "v$version")" || { echo "error: tag v$version already exists"; exit 1; }
+    just test
+    just build
+    git tag -a "v$version" -m "gensay $version"
+    git push origin "v$version"
+    just publish
+    gh release create "v$version" --title "gensay $version" --generate-notes
+    echo "✓ gensay $version released (tag + PyPI + GitHub release)"
+
 # Run the CLI with mock provider
 run-mock *ARGS:
     gensay --provider mock {{ARGS}}
