@@ -685,6 +685,13 @@ just test-specific tests/test_providers.py::test_mock_provider_speak
 just quick-test
 ```
 
+#### Python version support
+
+`just test` runs the nox matrix across **Python 3.11–3.15**.
+
+- **3.15 is best-effort**: verified against a pre-release interpreter (uv-managed 3.15.0a3); expect sharper edges until the final 3.15 release, and avoid claiming stable-grade 3.15 support to end users.
+- **Pre-release Pythons need modern Rust**: on interpreters without published wheels, deps build from source and Rust-backed sdists (e.g. `jiter` via OpenAI) require rustup stable ≥ 1.88 (`rustup update stable`).
+
 #### Code Quality
 
 ```bash
