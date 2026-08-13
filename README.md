@@ -3,7 +3,7 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/gensay.svg)](https://pypi.org/project/gensay)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/gensay.svg)](https://pypi.org/project/gensay)
 
-A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr/bin/say` command interface while supporting multiple TTS backends including Chatterbox (local AI), OpenAI, ElevenLabs, and Amazon Polly.
+A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr/bin/say` command interface while supporting multiple TTS backends including Chatterbox (local AI), OpenAI, ElevenLabs, Deepgram, and Amazon Polly.
 
 ## Features
 
@@ -12,6 +12,7 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
   - [macOS native `say` command](https://developer.apple.com/library/archive/documentation/LanguagesUtilities/Conceptual/MacAutomationScriptingGuide/SpeakText.html) (default on macOS)
   - [Chatterbox](https://github.com/resemble-ai/chatterbox) (local AI TTS, default on other platforms)
   - [ElevenLabs](https://elevenlabs.io/docs/api-reference/text-to-speech/convert) (cloud API)
+  - [Deepgram](https://developers.deepgram.com/docs/flux-tts/overview) (cloud API; Flux TTS, Aura-2, and Aura models)
   - [OpenAI TTS](https://platform.openai.com/docs/guides/text-to-speech) (cloud API)
   - [Amazon Polly](https://aws.amazon.com/polly/) (cloud API)
   - Mock provider for testing
@@ -22,7 +23,7 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 - **Background Pre-caching**: Queue and cache audio chunks in the background (Chatterbox only)
 - **Interactive REPL Mode**: Start an interactive session with provider initialized once for repeated use
 - **Warm Inference Daemon**: Keep local AI models loaded in a background process; ad-hoc `gensay` calls reuse the warm model via a Unix socket
-- **Offline Resilience**: Cloud providers (ElevenLabs, OpenAI, Polly) automatically fall back to macOS `say` when the network is unreachable
+- **Offline Resilience**: Cloud providers (ElevenLabs, Deepgram, OpenAI, Polly) automatically fall back to macOS `say` when the network is unreachable
 
 ## Table of Contents
 
@@ -45,7 +46,7 @@ It's 2026, use [uv](https://github.com/astral-sh/uv)
 
 **PortAudio is required** if you plan to use the ElevenLabs provider. The `pyaudio` dependency needs the PortAudio C library to compile successfully.
 
-Other providers (macOS, OpenAI, Amazon Polly, Chatterbox) do not require PortAudio.
+Other providers (macOS, OpenAI, Amazon Polly, Chatterbox, Deepgram) do not require PortAudio.
 
 **Homebrew (macOS):**
 
@@ -67,6 +68,10 @@ uv tool install gensay
 
 # With extras: ElevenLabs provider (requires PortAudio, see above)
 uv tool install 'gensay[elevenlabs]'
+
+# Deepgram provider (Flux TTS / Aura) ships in the core install; this extra
+# only adds keyring support for `gensay config set deepgram.api_key`
+uv tool install 'gensay[deepgram]'
 
 # With extras: Chatterbox provider (local Text-to-Speech model, ~2GB PyTorch dependencies)
 uv tool install 'gensay[chatterbox]' \
@@ -526,6 +531,51 @@ Polly supports multiple engines via `config.extra['engine']`:
 
 - `neural` (default): Higher quality, natural-sounding
 - `standard`: Lower cost, available for all voices
+
+### Deepgram
+
+Deepgram's [Flux TTS](https://deepgram.com/learn/introducing-flux-tts-conversation-native-text-to-speech-for-real-time-voice-agents) (`/v2/speak`) and Aura/Aura-2 (`/v1/speak`) batch REST APIs. The voice is embedded in the `model` string (e.g. `flux-haley-en`, `aura-2-thalia-en`) — pass either a short voice name or a full model string with `-v`.
+
+**Default model: Flux (`flux-haley-en`).** Which model speaks is resolved in this order:
+
+1. `-v <model string>` — full model passthrough, e.g. `-v flux-kit-en`, `-v aura-2-thalia-en`
+2. `-v <short name>` — resolved from the voice catalog, newest family wins: Flux > Aura-2 > Aura (e.g. `-v asteria` → `aura-2-asteria-en`; use the full `aura-asteria-en` string for the legacy Aura voice)
+3. `gensay config set deepgram.model <model string>` — your per-user provider default
+4. Built-in fallback — `flux-haley-en`
+
+Rate mapping (`-r WPM`, ~150 WPM = 1.0x): Flux accepts only the discrete ladder `{0.85, 0.9, ..., 1.15}` and gensay snaps to it (out-of-range values clamp); Aura accepts a continuous multiplier, clamped to 0.5–2.0.
+
+1. (Optional) install the extra — only needed to store the API key in the OS keychain via `config set`:
+   ```bash
+   pip install 'gensay[deepgram]'
+   ```
+2. Get an API key from [Deepgram Console](https://console.deepgram.com/signup)
+3. Set the environment variable (or use the OS keychain, see below):
+   ```bash
+   export DEEPGRAM_API_KEY="your-api-key"
+   ```
+
+```bash
+# List Deepgram voices (Flux + Aura-2 + Aura catalog)
+gensay --provider deepgram --list-voices
+
+# No voice flags → Flux default (flux-haley-en)
+gensay --provider deepgram "Hello from Deepgram Flux"
+
+# Use a short voice name or a full model string
+gensay --provider deepgram -v kit "British Flux voice"
+gensay --provider deepgram -v aura-2-thalia-en "Aura-2 voice"
+
+# Save to file
+gensay --provider deepgram -o speech.mp3 "Deepgram Flux TTS output"
+```
+
+Provider-specific config keys:
+
+```bash
+gensay config set deepgram.api_key '<your-key>'    # → Keychain/Secret Service
+gensay config set deepgram.model aura-2-thalia-en  # override the Flux default
+```
 
 ## Advanced Features
 

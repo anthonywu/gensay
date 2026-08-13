@@ -70,6 +70,8 @@ KEY_TYPES: dict[str, type] = {
     "daemon.idle_unload_s": float,
     "daemon.idle_exit_s": float,
     "daemon.ready_timeout": float,
+    "deepgram.api_key": str,
+    "deepgram.model": str,
     "elevenlabs.api_key": str,
     "elevenlabs.model": str,
 }
@@ -328,7 +330,7 @@ EXAMPLE_CONFIG = """\
 #
 # Precedence: CLI flags > environment (GENSAY_*) > this file > built-ins
 
-# provider = "chatterbox"   # chatterbox | macos | openai | elevenlabs | polly | mock
+# provider = "chatterbox"   # chatterbox | macos | openai | elevenlabs | deepgram | polly | mock
 # voice = "default"
 # rate = 150
 # format = "m4a"            # aiff wav m4a mp3 caf flac aac ogg
