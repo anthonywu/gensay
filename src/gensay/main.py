@@ -854,6 +854,10 @@ def daemon_main(argv: list[str] | None = None) -> None:
         return
 
     if args.daemon_cmd == "run":
+        # TorchCodec needs FFmpeg dylibs at process start; self-heal via one re-exec
+        from .providers.chatterbox import reexec_with_ffmpeg_libs_if_needed
+
+        reexec_with_ffmpeg_libs_if_needed(args.provider)
         config = TTSConfig(
             voice=args.voice,
             rate=args.rate,
@@ -950,6 +954,10 @@ def main():  # noqa: C901
             config.extra[sub] = val
 
     if args.provider == "chatterbox":
+        # TorchCodec needs FFmpeg dylibs at process start; self-heal via one re-exec
+        from .providers.chatterbox import reexec_with_ffmpeg_libs_if_needed
+
+        reexec_with_ffmpeg_libs_if_needed(args.provider)
         print(
             "Note: Chatterbox generation is slow on most consumer hardware, "
             "but audio outputs will be cached for re-use.",

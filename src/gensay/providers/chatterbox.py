@@ -7,6 +7,7 @@ import platform
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import wave
 from pathlib import Path
@@ -61,6 +62,35 @@ class FFmpegLibraryError(RuntimeError):
     """Raised when FFmpeg libraries are not properly configured."""
 
     pass
+
+
+def reexec_with_ffmpeg_libs_if_needed(provider_name: str = "chatterbox") -> None:
+    """Re-exec the process with FFmpeg libs on DYLD_LIBRARY_PATH, once, if needed.
+
+    TorchCodec resolves FFmpeg dylibs at process start, so setting the env var
+    in-process is too late. Self-heal instead: find the libs, restart with the
+    env fixed, guarded by GENSAY_FFMPEG_REEXEC so we can't loop. No-op for
+    non-chatterbox providers, if not Darwin, FFmpeg not found, or already set.
+    """
+    if provider_name != "chatterbox":
+        return
+    if platform.system() != "Darwin":
+        return
+    if os.environ.get("GENSAY_FFMPEG_REEXEC") == "1":
+        return
+    lib_path = _find_ffmpeg_lib_path()
+    if not lib_path:
+        return
+
+    current = os.environ.get("DYLD_LIBRARY_PATH", "")
+    if lib_path in current.split(":"):
+        return
+
+    env = os.environ.copy()
+    env["DYLD_LIBRARY_PATH"] = f"{lib_path}:{current}" if current else lib_path
+    env["GENSAY_FFMPEG_REEXEC"] = "1"
+    print(f"note: re-executing with FFmpeg libs for chatterbox: {lib_path}", file=sys.stderr)
+    os.execvpe(sys.executable, [sys.executable, "-m", "gensay", *sys.argv[1:]], env)
 
 
 def _check_ffmpeg_libs() -> None:

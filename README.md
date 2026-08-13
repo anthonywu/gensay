@@ -127,7 +127,9 @@ uv pip install git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
 
 #### FFmpeg Library Path (for Chatterbox on macOS)
 
-Chatterbox uses TorchCodec which requires FFmpeg libraries at runtime. On macOS, set `DYLD_LIBRARY_PATH` before running gensay:
+Chatterbox uses TorchCodec which requires FFmpeg libraries **at process start**. Since 0.5.0, gensay self-heals: if FFmpeg is detectable (Nix store or Homebrew), it re-executes itself once with `DYLD_LIBRARY_PATH` set correctly — no manual export needed for `gensay -p chatterbox`, the daemon, or `daemon start` children.
+
+If FFmpeg can't be auto-detected, set it manually:
 
 **Homebrew:**
 
