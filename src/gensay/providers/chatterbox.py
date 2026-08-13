@@ -64,6 +64,47 @@ class FFmpegLibraryError(RuntimeError):
     pass
 
 
+MODEL_REPO_ID = "ResembleAI/chatterbox-turbo"
+MODEL_DOWNLOAD_SIZE_HINT = "~4 GB"
+
+
+class ModelDownloadDeclinedError(RuntimeError):
+    """User declined the initial model download."""
+
+
+def _model_cached(repo_id: str) -> bool:
+    """True if the model snapshot is already in the local HuggingFace cache."""
+    try:
+        from huggingface_hub import snapshot_download
+
+        snapshot_download(repo_id, local_files_only=True)
+        return True
+    except Exception:
+        return False  # cache miss (or offline)
+
+
+def _confirm_model_download() -> None:
+    """Inform + confirm before the first model download; default answer is Yes.
+
+    Non-interactive callers (daemon, pipes) proceed with an stderr note —
+    explicitly choosing chatterbox already implies consent.
+    """
+    if _model_cached(MODEL_REPO_ID):
+        return
+    msg = (
+        f"chatterbox: model '{MODEL_REPO_ID}' not in the local HuggingFace cache; "
+        f"first use downloads {MODEL_DOWNLOAD_SIZE_HINT}. "
+    )
+    if sys.stdin.isatty():
+        ans = input(msg + "Download now? [Y/n] ").strip().lower()
+        if ans and ans not in ("y", "yes"):
+            raise ModelDownloadDeclinedError(
+                "chatterbox model download declined by user; nothing was downloaded"
+            )
+    else:
+        print(msg + "Proceeding (non-interactive).", file=sys.stderr)
+
+
 def reexec_with_ffmpeg_libs_if_needed(provider_name: str = "chatterbox") -> None:
     """Re-exec the process with FFmpeg libs on DYLD_LIBRARY_PATH, once, if needed.
 
@@ -175,6 +216,7 @@ class ChatterboxProvider(TTSProvider):
 
             self._ta = ta
             device = self.config.extra.get("device", self._device) if self.config else self._device
+            _confirm_model_download()
             self._tts = ChatterboxTurboTTS.from_pretrained(device=device)
             self._device = device
             self._model_loaded = True
