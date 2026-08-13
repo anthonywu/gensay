@@ -547,6 +547,42 @@ def _daemon_paths_from_args(args):
     )
 
 
+def _voice_flag_explicit(argv: list[str]) -> bool:
+    """True if the user passed -v/--voice on the command line."""
+    return any(
+        t == "-v"
+        or t == "--voice"
+        or t.startswith("--voice=")
+        or (t.startswith("-v") and len(t) > 2 and not t.startswith("--"))
+        for t in argv
+    )
+
+
+def _apply_voice_provider_scope(args, file_cfg, argv: list[str]) -> None:
+    """Drop the config-file voice default when speaking via a different provider.
+
+    Voice names are not portable (an ElevenLabs voice crashes Polly with a
+    voiceId ValidationException). A voice from config.toml is only a sensible
+    default for the provider it was chosen with; explicit `-v`, or `GENSAY_VOICE`,
+    always wins. Mutates ``args`` in place.
+    """
+    if (
+        not args.voice
+        or not file_cfg.voice
+        or not file_cfg.provider
+        or args.provider == file_cfg.provider
+        or _voice_flag_explicit(argv)
+        or os.environ.get("GENSAY_VOICE")
+    ):
+        return
+    print(
+        f"note: ignoring configured voice {args.voice!r} "
+        f"(default for provider {file_cfg.provider!r}, speaking via {args.provider!r})",
+        file=sys.stderr,
+    )
+    args.voice = None
+
+
 def _provider_flag_explicit(argv: list[str]) -> bool:
     """True if the user passed -p/--provider on the command line (vs config/builtin default)."""
     return any(
@@ -935,6 +971,11 @@ def main():  # noqa: C901
     user_cfg = resolve_user_config()
     parser = create_parser(user_cfg)
     args = parser.parse_args()
+
+    # A config-file voice default only applies to the provider it was set with
+    from .user_config import load_user_config
+
+    _apply_voice_provider_scope(args, load_user_config(), sys.argv[1:])
 
     # --listen removed in favor of daemon
     if args.listen is not None:
