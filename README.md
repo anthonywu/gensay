@@ -237,6 +237,8 @@ gensay --no-cache "Text" # Disable cache for this run
 
 Local AI providers (Chatterbox) pay multi-second model load on every process start. The daemon keeps the provider resident; subsequent `gensay` invocations are cheap RPCs over a user-local Unix socket.
 
+Cloud providers (ElevenLabs, OpenAI, Polly) are intentionally not hostable in the daemon — their client init is milliseconds, so there is nothing worth keeping warm.
+
 ```bash
 # Start once per session (preloads model, detaches)
 gensay daemon start -p chatterbox

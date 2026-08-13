@@ -24,6 +24,10 @@ PROVIDER_NAMES = ["chatterbox", "elevenlabs", "macos", "mock", "openai", "polly"
 # Providers with expensive process-local state — prefer daemon when available
 WARM_ELIGIBLE_PROVIDERS = frozenset({"chatterbox"})
 
+# Providers the daemon may host: warm-eligible ones, plus mock for tests/dev.
+# Cloud providers are excluded on purpose — nothing worth keeping resident.
+DAEMON_HOSTABLE_PROVIDERS = frozenset({"chatterbox", "mock"})
+
 # Network-dependent providers — get offline fallback to macos `say`
 CLOUD_PROVIDERS = frozenset({"elevenlabs", "openai", "polly"})
 
@@ -242,7 +246,9 @@ def create_daemon_parser(user_cfg=None) -> argparse.ArgumentParser:
     dd = cfg.daemon
     # Top-level provider can fill daemon.provider if daemon section omits it
     daemon_provider = dd.provider or cfg.provider or "chatterbox"
-    if daemon_provider not in PROVIDER_NAMES:
+    # Daemon hosts only providers with expensive local state (+ mock). A cloud
+    # provider configured as the speak default must not leak in here.
+    if daemon_provider not in DAEMON_HOSTABLE_PROVIDERS:
         daemon_provider = "chatterbox"
 
     idle_unload = (
@@ -271,7 +277,7 @@ def create_daemon_parser(user_cfg=None) -> argparse.ArgumentParser:
         p.add_argument(
             "-p",
             "--provider",
-            choices=PROVIDER_NAMES,
+            choices=sorted(DAEMON_HOSTABLE_PROVIDERS),
             default=daemon_provider,
             help=f"Provider to keep warm (default: {daemon_provider})",
         )
@@ -541,6 +547,17 @@ def _daemon_paths_from_args(args):
     )
 
 
+def _provider_flag_explicit(argv: list[str]) -> bool:
+    """True if the user passed -p/--provider on the command line (vs config/builtin default)."""
+    return any(
+        t == "-p"
+        or t == "--provider"
+        or t.startswith("--provider=")
+        or (t.startswith("-p") and len(t) > 2 and not t.startswith("--"))
+        for t in argv
+    )
+
+
 def _try_daemon_speak_or_save(args, text: str) -> bool:  # noqa: C901
     """Attempt speak/save via daemon. Returns True if handled (success). Raises on require failure."""
     from .daemon.client import DaemonClient, DaemonClientError, DaemonNotRunning, DaemonRPCError
@@ -588,11 +605,29 @@ def _try_daemon_speak_or_save(args, text: str) -> bool:  # noqa: C901
                 )
             return False
 
+    # If the user did not explicitly pass -p, a configured/builtin provider
+    # default must not constrain the daemon: let the hosted provider decide.
+    # (args.provider here may come from config.toml/DEFAULT — e.g. elevenlabs
+    # while the daemon hosts chatterbox.)
+    request_provider = args.provider
+    daemon_provider_name = None
+    if not _provider_flag_explicit(sys.argv[1:]):
+        with contextlib.suppress(DaemonClientError):
+            st = client.status()
+            daemon_provider_name = st.provider
+            if st.provider and st.provider != args.provider:
+                print(
+                    f"note: daemon hosts {st.provider!r}; ignoring configured provider "
+                    f"default {args.provider!r} (pass -p explicitly to assert a provider)",
+                    file=sys.stderr,
+                )
+                request_provider = None
+
     try:
         if args.list_voices:
             voices = client.list_voices()
             # print like list_voices()
-            print(f"\nVoices for provider: {args.provider} (via daemon)\n")
+            print(f"\nVoices for provider: {daemon_provider_name or args.provider} (via daemon)\n")
             for voice in voices:
                 display_name = voice.get("name", voice["id"])
                 lang = voice.get("language", "Unknown")
@@ -611,7 +646,7 @@ def _try_daemon_speak_or_save(args, text: str) -> bool:  # noqa: C901
                 rate=args.rate,
                 format=args.format,
                 no_cache=args.no_cache,
-                provider=args.provider,
+                provider=request_provider,
             )
             print(f"Audio saved to {result.path or args.output}")
         else:
@@ -620,7 +655,7 @@ def _try_daemon_speak_or_save(args, text: str) -> bool:  # noqa: C901
                 voice=args.voice,
                 rate=args.rate,
                 no_cache=args.no_cache,
-                provider=args.provider,
+                provider=request_provider,
             )
         return True
     except DaemonRPCError as e:

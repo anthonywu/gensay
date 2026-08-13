@@ -402,20 +402,15 @@ def build_provider(provider_name: str, config: TTSConfig | None = None) -> TTSPr
     # Local imports avoid loading heavy deps until needed; keep out of main to
     # prevent circular imports (main → daemon → main).
     name = provider_name.lower()
+    if name not in ("chatterbox", "mock"):
+        raise ValueError(
+            f"daemon only hosts providers with expensive local state "
+            f"(chatterbox, mock); {provider_name!r} gains nothing from being kept resident"
+        )
     if name == "chatterbox":
         from ..providers.chatterbox import ChatterboxProvider as cls
-    elif name == "elevenlabs":
-        from ..providers.elevenlabs import ElevenLabsProvider as cls
-    elif name == "macos":
-        from ..providers.macos_say import MacOSSayProvider as cls
-    elif name == "mock":
-        from ..providers.mock import MockProvider as cls
-    elif name == "openai":
-        from ..providers.openai import OpenAIProvider as cls
-    elif name == "polly":
-        from ..providers.amazon_polly import AmazonPollyProvider as cls
     else:
-        raise ValueError(f"unknown provider: {provider_name}")
+        from ..providers.mock import MockProvider as cls
     return cls(config or TTSConfig())
 
 

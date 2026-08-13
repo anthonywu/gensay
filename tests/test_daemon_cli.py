@@ -168,6 +168,138 @@ def test_daemon_restart_tolerates_stop_failure(
     assert len(fake_lifecycle.calls["start"]) == 1
 
 
+def test_daemon_rejects_cloud_providers(isolated_runtime, fake_lifecycle, capsys):
+    with pytest.raises(SystemExit) as ei:
+        daemon_main(["start", "-p", "elevenlabs"])
+    assert ei.value.code == 2  # argparse choices rejection
+    assert "invalid choice" in capsys.readouterr().err
+    assert fake_lifecycle.calls["start"] == []
+
+
+def test_daemon_default_ignores_cloud_speak_default(monkeypatch, tmp_path):
+    """A cloud `provider` from user config must not become the daemon default."""
+    from gensay.main import create_daemon_parser
+    from gensay.user_config import UserConfig
+
+    cfg = UserConfig(provider="elevenlabs")
+    parser = create_daemon_parser(cfg)
+    args = parser.parse_args(["start"])
+    assert args.provider == "chatterbox"
+
+
+def test_build_provider_floor_rejects_cloud():
+    from gensay.daemon.server import build_provider
+
+    for name in ("elevenlabs", "openai", "polly", "macos"):
+        with pytest.raises(ValueError, match="gains nothing"):
+            build_provider(name)
+
+
+def _routing_args(**kw):
+    base = dict(
+        provider="elevenlabs",
+        voice=None,
+        rate=None,
+        no_cache=False,
+        via_daemon=True,
+        no_daemon=False,
+        auto_daemon=False,
+        list_voices=False,
+        output=None,
+        format=None,
+        runtime_dir=None,
+        socket=None,
+    )
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+@pytest.fixture
+def routed_client(monkeypatch, tmp_path):
+    """Fake DaemonClient injected into main()'s daemon-routing path."""
+    monkeypatch.setenv("GENSAY_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setenv("GENSAY_SOCKET", str(tmp_path / "s.sock"))
+
+    seen: dict = {"speak": [], "save": [], "status_calls": 0}
+
+    class FakeClient:
+        def __init__(self, paths):
+            pass
+
+        def is_running(self):
+            return True
+
+        def status(self):
+            seen["status_calls"] += 1
+            return SimpleNamespace(provider="chatterbox")
+
+        def speak(self, text, **kw):
+            seen["speak"].append((text, kw))
+
+        def save(self, text, output, **kw):
+            seen["save"].append((text, output, kw))
+            return SimpleNamespace(path=str(output))
+
+        def list_voices(self):
+            return []
+
+    monkeypatch.setattr("gensay.daemon.client.DaemonClient", FakeClient)
+    return seen
+
+
+def test_via_daemon_without_explicit_flag_lets_daemon_decide(routed_client, monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["gensay", "hello"])
+    from gensay.main import _try_daemon_speak_or_save
+
+    assert _try_daemon_speak_or_save(_routing_args(), "hello") is True
+    _, kw = routed_client["speak"][0]
+    assert kw["provider"] is None  # daemon decides
+    err = capsys.readouterr().err
+    assert "daemon hosts 'chatterbox'" in err
+    assert "ignoring configured provider default 'elevenlabs'" in err
+
+
+def test_via_daemon_explicit_flag_asserts_provider(routed_client, monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["gensay", "-p", "elevenlabs", "hello"])
+    from gensay.main import _try_daemon_speak_or_save
+
+    assert _try_daemon_speak_or_save(_routing_args(), "hello") is True
+    _, kw = routed_client["speak"][0]
+    assert kw["provider"] == "elevenlabs"  # asserted, server will mismatch if hosting another
+    assert "ignoring configured provider" not in capsys.readouterr().err
+
+
+def test_routing_no_warning_when_config_matches_daemon(routed_client, monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["gensay", "hello"])
+    from gensay.main import _try_daemon_speak_or_save
+
+    assert _try_daemon_speak_or_save(_routing_args(provider="chatterbox"), "hello") is True
+    _, kw = routed_client["speak"][0]
+    assert kw["provider"] == "chatterbox"
+    assert capsys.readouterr().err == ""
+
+
+def test_provider_flag_explicit():
+    from gensay.main import _provider_flag_explicit
+
+    assert not _provider_flag_explicit(["hello"])
+    assert _provider_flag_explicit(["-p", "mock", "hello"])
+    assert _provider_flag_explicit(["--provider", "mock", "hi"])
+    assert _provider_flag_explicit(["--provider=mock", "hi"])
+    assert _provider_flag_explicit(["-pmock", "hi"])  # concatenated form
+    assert not _provider_flag_explicit(["-r", "170", "hello"])
+    assert not _provider_flag_explicit(["-o", "out.m4a"])
+
+
+def test_routing_save_also_delegates(routed_client, monkeypatch):
+    monkeypatch.setattr("sys.argv", ["gensay", "-o", "out.m4a", "hello"])
+    from gensay.main import _try_daemon_speak_or_save
+
+    assert _try_daemon_speak_or_save(_routing_args(output="out.m4a"), "hello") is True
+    _, _, kw = routed_client["save"][0]
+    assert kw["provider"] is None
+
+
 def test_daemon_run_foreground(isolated_runtime, monkeypatch):
     seen = {}
 
