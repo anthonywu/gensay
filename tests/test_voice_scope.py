@@ -45,11 +45,23 @@ def test_explicit_voice_flag_respected(el_cfg):
     assert args.voice == "Matilda"
 
 
-def test_env_voice_respected(el_cfg, monkeypatch: pytest.MonkeyPatch):
+def test_env_voice_dropped_with_override_warning(el_cfg, monkeypatch: pytest.MonkeyPatch, capsys):
     monkeypatch.setenv("GENSAY_VOICE", "Matilda")
     args = _args(provider="polly", voice="Matilda")
     _apply_voice_provider_scope(args, el_cfg, ["hello"])
-    assert args.voice == "Matilda"
+    assert args.voice is None
+    err = capsys.readouterr().err
+    assert "warning: GENSAY_VOICE='Matilda'" in err
+    assert "Pass -v explicitly to force the voice, or unset GENSAY_VOICE" in err
+
+
+def test_coherent_env_pair_is_honored(el_cfg, monkeypatch: pytest.MonkeyPatch):
+    """GENSAY_PROVIDER + GENSAY_VOICE for the same provider: both apply."""
+    monkeypatch.setenv("GENSAY_PROVIDER", "polly")
+    monkeypatch.setenv("GENSAY_VOICE", "Joanna")
+    args = _args(provider="polly", voice="Joanna")
+    _apply_voice_provider_scope(args, el_cfg, ["hello"])
+    assert args.voice == "Joanna"
 
 
 def test_voice_without_config_provider_is_unscoped(capsys):

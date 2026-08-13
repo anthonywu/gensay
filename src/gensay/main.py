@@ -559,27 +559,38 @@ def _voice_flag_explicit(argv: list[str]) -> bool:
 
 
 def _apply_voice_provider_scope(args, file_cfg, argv: list[str]) -> None:
-    """Drop the config-file voice default when speaking via a different provider.
+    """Drop ambient voice defaults (config file or GENSAY_VOICE) on cross-provider speaks.
 
     Voice names are not portable (an ElevenLabs voice crashes Polly with a
-    voiceId ValidationException). A voice from config.toml is only a sensible
-    default for the provider it was chosen with; explicit `-v`, or `GENSAY_VOICE`,
-    always wins. Mutates ``args`` in place.
+    voiceId ValidationException). A voice default is only sensible for the
+    provider it was chosen with. Explicit `-v` always wins, and a coherent
+    env pair (GENSAY_PROVIDER + GENSAY_VOICE for that same provider) is honored.
+    Mutates ``args`` in place.
     """
     if (
         not args.voice
-        or not file_cfg.voice
         or not file_cfg.provider
         or args.provider == file_cfg.provider
         or _voice_flag_explicit(argv)
-        or os.environ.get("GENSAY_VOICE")
     ):
         return
-    print(
-        f"note: ignoring configured voice {args.voice!r} "
-        f"(default for provider {file_cfg.provider!r}, speaking via {args.provider!r})",
-        file=sys.stderr,
-    )
+    if os.environ.get("GENSAY_VOICE"):
+        if os.environ.get("GENSAY_PROVIDER") == args.provider:
+            return  # env pair is coherent
+        print(
+            f"warning: GENSAY_VOICE={args.voice!r} is set but not valid for provider "
+            f"{args.provider!r}; ignoring it this run. "
+            f"Pass -v explicitly to force the voice, or unset GENSAY_VOICE.",
+            file=sys.stderr,
+        )
+    elif file_cfg.voice:
+        print(
+            f"note: ignoring configured voice {args.voice!r} "
+            f"(default for provider {file_cfg.provider!r}, speaking via {args.provider!r})",
+            file=sys.stderr,
+        )
+    else:
+        return  # voice origin unclear; leave it alone
     args.voice = None
 
 

@@ -58,6 +58,8 @@ Cloud provider credentials (env vars take precedence; see README for full setup)
                 # Updates your default AWS profile with IAM user credentials.
                 # Tip: sign in to the AWS console in your browser FIRST so the
                 # authorization above completes without a fresh console login.
+                # NOTE: boto3 reads AWS_DEFAULT_REGION (NOT AWS_REGION); also export:
+                export AWS_DEFAULT_REGION=us-west-2
 
 Examples:
   gensay "Hello, world!"
