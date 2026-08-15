@@ -60,10 +60,13 @@ chatterbox = [
 ]
 deepgram = ["keyring>=25.0,<26"]
 elevenlabs = ["elevenlabs[pyaudio]>=2.0,<3.0", "keyring>=25.0,<26"]
+# OS keychain storage for `gensay config set <provider>.api_key`
+# (openai/polly have no provider extra of their own; deepgram/elevenlabs already include keyring)
+keychain = ["keyring>=25.0,<26"]
 # Audio format conversion
 audio-formats = ["pydub>=0.25.0", "ffmpeg-python>=0.2.0"]
 # All optional dependencies
-all = ["gensay[audio-formats,chatterbox,deepgram,elevenlabs]"]
+all = ["gensay[audio-formats,chatterbox,deepgram,elevenlabs,keychain]"]
 
 # Development dependencies (PEP 735)
 [dependency-groups]

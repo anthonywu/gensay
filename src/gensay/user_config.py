@@ -93,7 +93,8 @@ def _keyring_module():
     except ImportError as e:
         raise ConfigValueError(
             "secret storage requires the 'keyring' package; "
-            "install it with the provider extra, e.g. pip install 'gensay[elevenlabs]'"
+            "install it with: pip install 'gensay[keychain]' "
+            "(also included in the deepgram/elevenlabs extras)"
         ) from e
     return keyring
 
