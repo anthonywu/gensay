@@ -72,6 +72,7 @@ class OpenAIProvider(TTSProvider):
         speed = self._rate_to_speed(rate)
         cache_key = self._get_cache_key(text, voice, speed, "mp3")
 
+        temp_path: Path | None = None
         try:
             self.update_progress(0.0, "Checking cache...")
 
@@ -114,7 +115,7 @@ class OpenAIProvider(TTSProvider):
             raise RuntimeError(f"OpenAI TTS failed: {e}") from e
         finally:
             # Clean up temp file
-            if temp_path.exists():
+            if temp_path is not None and temp_path.exists():
                 temp_path.unlink()
 
     def save_to_file(

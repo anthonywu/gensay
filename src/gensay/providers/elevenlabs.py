@@ -270,6 +270,14 @@ class ElevenLabsProvider(TTSProvider):
     def _get_cache_key(
         self, text: str, voice_id: str, voice_settings: "VoiceSettings", format: str, model: str
     ) -> str:
-        """Generate cache key for text/voice/settings/format/model combination."""
-        data = f"elevenlabs|{text}|{voice_id}|{voice_settings}|{format}|{model}"
+        """Generate cache key for text/voice/settings/format/model combination.
+
+        Uses explicit VoiceSettings fields (not the object's repr, which the
+        SDK may change between releases and would silently invalidate caches).
+        """
+        settings = (
+            f"{voice_settings.stability}|{voice_settings.similarity_boost}"
+            f"|{voice_settings.style}|{voice_settings.use_speaker_boost}|{voice_settings.speed}"
+        )
+        data = f"elevenlabs|{text}|{voice_id}|{settings}|{format}|{model}"
         return hashlib.sha256(data.encode()).hexdigest()

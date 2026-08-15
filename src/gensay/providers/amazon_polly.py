@@ -47,10 +47,14 @@ class AmazonPollyProvider(TTSProvider):
     """TTS provider using Amazon Polly service.
 
     AWS credentials can be provided via:
-    1. Environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
-    2. AWS credentials file: ~/.aws/credentials
-    3. IAM role (when running on AWS infrastructure)
-    4. Config extra: config.extra['aws_access_key_id'], config.extra['aws_secret_access_key']
+    1. Config extra: config.extra['aws_access_key_id'], config.extra['aws_secret_access_key']
+    2. Environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
+    3. AWS credentials file: ~/.aws/credentials
+    4. IAM role (when running on AWS infrastructure)
+
+    Note: unlike the api_key cloud providers (env var first), explicit
+    config.extra values take precedence here — matching boto3's own
+    convention that explicit client kwargs beat ambient environment.
     """
 
     # Map our formats to Polly output formats
@@ -135,6 +139,7 @@ class AmazonPollyProvider(TTSProvider):
         """Speak text using Amazon Polly."""
         voice = voice or self.config.voice or "Joanna"  # Default US English neural voice
 
+        temp_path: Path | None = None
         try:
             self.update_progress(0.0, "Checking cache...")
 
@@ -182,11 +187,14 @@ class AmazonPollyProvider(TTSProvider):
 
             self.update_progress(1.0, "Complete")
 
-        except (BotoCoreError, ClientError) as e:
+        except Exception as e:
+            # Uniform wrapping (matches other cloud providers); covers Boto
+            # errors and playback failures alike, preserving the cause chain
+            # for offline-fallback network detection.
             raise RuntimeError(f"Amazon Polly TTS failed: {e}") from e
         finally:
             # Clean up temp file
-            if temp_path.exists():
+            if temp_path is not None and temp_path.exists():
                 temp_path.unlink()
 
     def save_to_file(
@@ -238,7 +246,7 @@ class AmazonPollyProvider(TTSProvider):
 
             return output_path
 
-        except (BotoCoreError, ClientError) as e:
+        except Exception as e:
             raise RuntimeError(f"Amazon Polly TTS failed: {e}") from e
 
     def list_voices(self) -> list[dict[str, Any]]:
