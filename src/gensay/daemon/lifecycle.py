@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import time
+from typing import Any
 
 from .client import DaemonClient, DaemonNotRunning
 from .paths import DaemonPaths, default_paths
@@ -39,7 +40,7 @@ def status(paths: DaemonPaths | None = None) -> dict:
     """Return a status dict for CLI printing."""
     paths = paths or default_paths()
     client = DaemonClient(paths)
-    base = {
+    base: dict[str, Any] = {
         "running": False,
         "socket": str(paths.socket),
         "pidfile": str(paths.pidfile),
