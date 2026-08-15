@@ -290,6 +290,54 @@ def test_config_cli_secret_does_not_echo_value(
     assert capsys.readouterr().out.strip() == "sk-secret"
 
 
+def test_config_cli_secret_prompts_when_value_omitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
+):
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    import getpass
+
+    from gensay.main import config_main
+
+    monkeypatch.setattr(getpass, "getpass", lambda prompt="": "sk-pasted-secret")
+    config_main(["set", "openai.api_key"])
+    out = capsys.readouterr().out
+    assert "sk-pasted-secret" not in out
+    assert "keychain" in out
+
+    config_main(["get", "openai.api_key"])
+    assert capsys.readouterr().out.strip() == "sk-pasted-secret"
+
+
+def test_config_cli_secret_prompt_rejects_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
+):
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    import getpass
+
+    from gensay.main import config_main
+
+    monkeypatch.setattr(getpass, "getpass", lambda prompt="": "")
+    with pytest.raises(SystemExit) as ei:
+        config_main(["set", "openai.api_key"])
+    assert ei.value.code == 1
+    assert "empty value" in capsys.readouterr().err
+
+
+def test_config_cli_non_secret_requires_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+):
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    from gensay.main import config_main
+
+    with pytest.raises(SystemExit) as ei:
+        config_main(["set", "provider"])
+    assert ei.value.code == 1
+    assert "value is required" in capsys.readouterr().err
+
+
 def test_main_injects_keychain_api_key_into_provider(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring
 ):

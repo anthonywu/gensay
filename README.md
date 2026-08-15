@@ -29,6 +29,7 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Hero Examples — Every Provider](USAGE.md#hero-examples--every-provider) (in USAGE.md)
 - [Command Line Usage](#command-line-usage)
 - [Python API](#python-api)
 - [Provider Configurations](#provider-configurations)
@@ -170,6 +171,8 @@ gensay -o greeting.m4a "Welcome to gensay"
 gensay -v '?'
 gensay --list-voices
 ```
+
+Want a copy-pasteable example for a specific backend? See the [hero examples for every provider](USAGE.md#hero-examples--every-provider) in USAGE.md — setup + canonical commands for macOS, Chatterbox, ElevenLabs, Deepgram, OpenAI, Amazon Polly, and Mock.
 
 ## Command Line Usage
 
@@ -340,10 +343,12 @@ After that, `gensay "Build finished"` uses chatterbox (and auto-starts the warm 
 `<provider>.api_key` keys are secrets: `config set` stores them in the **OS keychain** (via `keyring`), never in the plaintext TOML file.
 
 ```bash
-gensay config set elevenlabs.api_key '<your-key>'   # → Keychain/Secret Service
+gensay config set elevenlabs.api_key   # prompts with hidden input (safe paste) → Keychain/Secret Service
 gensay config show    # prints "elevenlabs.api_key = (stored in OS keychain)"
 gensay config unset elevenlabs.api_key              # removes from keychain
 ```
+
+Omit the value to get a hidden password prompt — the secret never lands in your shell history or process list. Passing the value inline (`gensay config set elevenlabs.api_key '<your-key>'`) still works, e.g. for scripting via stdin: `printf '%s' "$KEY" | gensay config set elevenlabs.api_key`.
 
 Runtime precedence: provider env var (`ELEVENLABS_API_KEY`, also via `.env`) > OS keychain.
 
@@ -467,9 +472,11 @@ gensay --provider elevenlabs -o speech.mp3 "High quality AI speech"
 ### OpenAI TTS
 
 1. Get an API key from [OpenAI Platform](https://platform.openai.com/api-keys)
-2. Set the environment variable:
+2. Set the environment variable (or store it once in the OS keychain):
    ```bash
    export OPENAI_API_KEY="sk-..."
+   # or (prompts with hidden input, keeps the key out of shell history):
+   gensay config set openai.api_key   # → Keychain/Secret Service
    ```
 
 ```bash
@@ -483,7 +490,7 @@ gensay --provider openai -v nova "Hello from OpenAI"
 gensay --provider openai -o speech.mp3 "OpenAI TTS output"
 ```
 
-OpenAI offers two models via `config.extra['model']`:
+OpenAI offers two models via `config.extra['model']` (or `gensay config set openai.model tts-1-hd`):
 
 - `tts-1` (default): Faster, lower latency
 - `tts-1-hd`: Higher quality audio
@@ -573,7 +580,7 @@ gensay --provider deepgram -o speech.mp3 "Deepgram Flux TTS output"
 Provider-specific config keys:
 
 ```bash
-gensay config set deepgram.api_key '<your-key>'    # → Keychain/Secret Service
+gensay config set deepgram.api_key                 # hidden prompt → Keychain/Secret Service
 gensay config set deepgram.model aura-2-thalia-en  # override the Flux default
 ```
 

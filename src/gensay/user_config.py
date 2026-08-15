@@ -74,6 +74,8 @@ KEY_TYPES: dict[str, type] = {
     "deepgram.model": str,
     "elevenlabs.api_key": str,
     "elevenlabs.model": str,
+    "openai.api_key": str,
+    "openai.model": str,
 }
 
 KNOWN_KEYS = tuple(sorted(KEY_TYPES))

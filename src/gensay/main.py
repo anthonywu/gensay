@@ -394,8 +394,10 @@ def create_config_parser() -> argparse.ArgumentParser:
     p_set.add_argument("key", help="Key (e.g. provider, auto_daemon, daemon.provider)")
     p_set.add_argument(
         "value",
-        nargs="+",
-        help="Value (bool: true/false; join multiple words with spaces for strings)",
+        nargs="*",
+        help="Value (bool: true/false; join multiple words with spaces for strings). "
+        "For secret keys (*.api_key), omit the value to be prompted with hidden "
+        "input — keeps the secret out of shell history.",
     )
 
     p_unset = sub.add_parser("unset", help="Remove a key from config.toml")
@@ -823,13 +825,34 @@ def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
         return
 
     if args.config_cmd == "set":
-        raw = " ".join(args.value)
+        from .user_config import is_secret_key
+
+        if args.value:
+            raw = " ".join(args.value)
+        elif is_secret_key(args.key):
+            # Hidden prompt keeps the secret out of shell history / process args
+            import getpass
+
+            try:
+                raw = getpass.getpass(f"Value for {args.key} (input hidden): ")
+            except (EOFError, KeyboardInterrupt):
+                print("\nAborted; nothing stored.", file=sys.stderr)
+                sys.exit(1)
+            if not raw:
+                print("Error: empty value; nothing stored.", file=sys.stderr)
+                sys.exit(1)
+        else:
+            print(
+                f"Error: a value is required for {args.key!r} "
+                "(hidden prompt is only offered for *.api_key keys)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         try:
             parsed = set_config_value(args.key, raw)
         except (ConfigKeyError, ConfigValueError) as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
-        from .user_config import is_secret_key
 
         if is_secret_key(args.key):
             print(f"set {args.key} (stored in OS keychain)")
