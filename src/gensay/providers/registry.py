@@ -113,6 +113,7 @@ SPECS: tuple[ProviderSpec, ...] = (
         kind="cloud",
         # Auth via the standard AWS credential chain (env/aws login/IAM),
         # not a gensay-managed api_key.
+        config_keys=(("engine", str), ("aws_profile", str), ("aws_region", str)),
     ),
 )
 

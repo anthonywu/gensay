@@ -105,6 +105,11 @@ class TestConfigKeyDerivation:
         assert keys["openai.model"] is str
         assert keys["deepgram.api_key"] is str
         assert keys["elevenlabs.model"] is str
+        # Polly has no api_key (AWS credential chain) but exposes tuning keys
+        assert keys["polly.engine"] is str
+        assert keys["polly.aws_profile"] is str
+        assert keys["polly.aws_region"] is str
+        assert "polly.api_key" not in keys
 
 
 class TestNamesWhere:
