@@ -292,3 +292,12 @@ Cloud providers should subclass `CloudTTSProvider` and implement one hook
 playback, progress, and error wrapping come from the base class. Installed
 plugins appear in `--provider` choices and `gensay config keys`
 automatically; names that collide with builtins are skipped with a warning.
+
+A complete installable example lives in
+[`examples/gensay-plugin-example`](examples/gensay-plugin-example/) — an
+offline provider that beeps text as sine-wave tones:
+
+```bash
+uv pip install ./examples/gensay-plugin-example
+gensay -p tone "hello plugins"
+```
