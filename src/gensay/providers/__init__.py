@@ -4,38 +4,15 @@ Uses lazy imports to avoid loading heavy provider dependencies until needed.
 """
 
 from .base import AudioFormat, ProgressCallback, TTSConfig, TTSProvider
+from .registry import SPECS, SPECS_BY_NAME, ProviderSpec
+
+_CLASS_NAME_TO_SPEC = {spec.class_name: spec for spec in SPECS}
 
 
 def __getattr__(name: str):
     """Lazy import provider classes to avoid loading heavy dependencies."""
-    if name == "ChatterboxProvider":
-        from .chatterbox import ChatterboxProvider
-
-        return ChatterboxProvider
-    elif name == "DeepgramProvider":
-        from .deepgram import DeepgramProvider
-
-        return DeepgramProvider
-    elif name == "ElevenLabsProvider":
-        from .elevenlabs import ElevenLabsProvider
-
-        return ElevenLabsProvider
-    elif name == "MacOSSayProvider":
-        from .macos_say import MacOSSayProvider
-
-        return MacOSSayProvider
-    elif name == "MockProvider":
-        from .mock import MockProvider
-
-        return MockProvider
-    elif name == "OpenAIProvider":
-        from .openai import OpenAIProvider
-
-        return OpenAIProvider
-    elif name == "AmazonPollyProvider":
-        from .amazon_polly import AmazonPollyProvider
-
-        return AmazonPollyProvider
+    if spec := _CLASS_NAME_TO_SPEC.get(name):
+        return spec.load()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -44,11 +21,8 @@ __all__ = [
     "TTSConfig",
     "AudioFormat",
     "ProgressCallback",
-    "ChatterboxProvider",
-    "DeepgramProvider",
-    "MacOSSayProvider",
-    "MockProvider",
-    "OpenAIProvider",
-    "ElevenLabsProvider",
-    "AmazonPollyProvider",
+    "ProviderSpec",
+    "SPECS",
+    "SPECS_BY_NAME",
+    *sorted(_CLASS_NAME_TO_SPEC),
 ]

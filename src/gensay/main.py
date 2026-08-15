@@ -18,41 +18,27 @@ from .providers.base import AudioFormat, TTSConfig
 if TYPE_CHECKING:
     from .providers.base import TTSProvider
 
-# Provider names for argparse choices (avoid importing heavy modules at top level)
-PROVIDER_NAMES = ["chatterbox", "deepgram", "elevenlabs", "macos", "mock", "openai", "polly"]
+# All provider facts are declared once in providers/registry.py; these are
+# cheap derivations (the registry imports no heavy provider modules).
+from .providers.registry import load_all_provider_classes, names_where, provider_names
+
+# Provider names for argparse choices
+PROVIDER_NAMES = provider_names()
 
 # Providers with expensive process-local state — prefer daemon when available
-WARM_ELIGIBLE_PROVIDERS = frozenset({"chatterbox"})
+WARM_ELIGIBLE_PROVIDERS = names_where(lambda s: s.warm_eligible)
 
 # Providers the daemon may host: warm-eligible ones, plus mock for tests/dev.
 # Cloud providers are excluded on purpose — nothing worth keeping resident.
-DAEMON_HOSTABLE_PROVIDERS = frozenset({"chatterbox", "mock"})
+DAEMON_HOSTABLE_PROVIDERS = names_where(lambda s: s.daemon_hostable)
 
 # Network-dependent providers — get offline fallback to macos `say`
-CLOUD_PROVIDERS = frozenset({"deepgram", "elevenlabs", "openai", "polly"})
+CLOUD_PROVIDERS = names_where(lambda s: s.kind == "cloud")
 
 
 def get_providers() -> dict:
     """Lazily import and return provider classes."""
-    from .providers import (
-        AmazonPollyProvider,
-        ChatterboxProvider,
-        DeepgramProvider,
-        ElevenLabsProvider,
-        MacOSSayProvider,
-        MockProvider,
-        OpenAIProvider,
-    )
-
-    return {
-        "chatterbox": ChatterboxProvider,
-        "deepgram": DeepgramProvider,
-        "elevenlabs": ElevenLabsProvider,
-        "macos": MacOSSayProvider,
-        "mock": MockProvider,
-        "openai": OpenAIProvider,
-        "polly": AmazonPollyProvider,
-    }
+    return load_all_provider_classes()
 
 
 def platform_default_provider() -> str:

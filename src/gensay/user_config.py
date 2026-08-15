@@ -29,6 +29,8 @@ from typing import Any
 
 import platformdirs
 
+from .providers.registry import provider_config_key_types
+
 CONFIG_FILENAME = "config.toml"
 
 # Keys that map 1:1 onto argparse dest names for the main CLI
@@ -70,12 +72,9 @@ KEY_TYPES: dict[str, type] = {
     "daemon.idle_unload_s": float,
     "daemon.idle_exit_s": float,
     "daemon.ready_timeout": float,
-    "deepgram.api_key": str,
-    "deepgram.model": str,
-    "elevenlabs.api_key": str,
-    "elevenlabs.model": str,
-    "openai.api_key": str,
-    "openai.model": str,
+    # Provider-scoped keys ("<provider>.api_key", "<provider>.model", ...)
+    # are declared on each ProviderSpec in providers/registry.py.
+    **provider_config_key_types(),
 }
 
 KNOWN_KEYS = tuple(sorted(KEY_TYPES))
