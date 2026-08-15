@@ -197,6 +197,7 @@ Cloud.
 export OPENAI_API_KEY='sk-...'                  # env var (or .env file)
 gensay config set openai.api_key                # once → prompts (hidden paste) → OS keychain
 gensay config unset openai.api_key              # remove from keychain
+# keychain storage needs the keyring package: pip install 'gensay[keychain]'
 
 # Speak (--provider and -p are equivalent; -v and --voice are equivalent)
 gensay --provider openai "Default voice"
@@ -231,6 +232,9 @@ gensay -p polly -v '?'                          # 60+ voices, many languages
 gensay -p polly -o speech.mp3 "Save to file"
 
 # Defaults via config store
+gensay config set polly.engine standard         # standard | neural | long-form | generative (default: neural)
+gensay config set polly.aws_profile my-profile  # named AWS profile (SSO, assume-role, ...)
+gensay config set polly.aws_region us-west-2    # region override
 gensay config set provider polly                # make it the default provider
 ```
 
@@ -251,3 +255,36 @@ gensay --provider <name> -v '?'                   # same, shorthand
 gensay --provider <name> -o out.m4a "text"        # save instead of play
 echo "text" | gensay --provider <name> -f -       # read from stdin
 ```
+
+## Provider plugins (third-party)
+
+Packages can add providers via the `gensay.providers` entry-point group.
+The entry point must resolve to a `ProviderSpec`; keep that module cheap to
+import — the provider class itself is only imported when selected.
+
+```toml
+# pyproject.toml of your plugin package
+[project.entry-points."gensay.providers"]
+acme = "acme_tts:GENSAY_PROVIDER_SPEC"
+```
+
+```python
+# acme_tts/__init__.py — import-cheap module
+from gensay.providers.registry import ProviderSpec
+
+GENSAY_PROVIDER_SPEC = ProviderSpec(
+    name="acme",
+    class_name="AcmeProvider",          # subclass of TTSProvider
+    module="acme_tts.provider",         # imported lazily on first use
+    kind="cloud",
+    env_api_key="ACME_API_KEY",
+    config_keys=(("api_key", str), ("model", str)),
+)
+```
+
+Cloud providers should subclass `gensay.providers.cloud.CloudTTSProvider`
+and implement one hook (`_prepare`) plus `list_voices` /
+`get_supported_formats`; caching, playback, progress, and error wrapping
+come from the base class. Installed plugins appear in `--provider` choices
+and `gensay config keys` automatically; names that collide with builtins
+are skipped with a warning.

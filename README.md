@@ -74,6 +74,10 @@ uv tool install 'gensay[elevenlabs]'
 # only adds keyring support for `gensay config set deepgram.api_key`
 uv tool install 'gensay[deepgram]'
 
+# OS keychain storage for API keys (`gensay config set <provider>.api_key`)
+# without any provider extra — e.g. for OpenAI, which ships in core
+uv tool install 'gensay[keychain]'
+
 # With extras: Chatterbox provider (local Text-to-Speech model, ~2GB PyTorch dependencies)
 uv tool install 'gensay[chatterbox]' \
   --with git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
@@ -173,6 +177,8 @@ gensay --list-voices
 ```
 
 Want a copy-pasteable example for a specific backend? See the [hero examples for every provider](USAGE.md#hero-examples--every-provider) in USAGE.md — setup + canonical commands for macOS, Chatterbox, ElevenLabs, Deepgram, OpenAI, Amazon Polly, and Mock.
+
+Third-party packages can add providers via the `gensay.providers` entry-point group — see [Provider plugins](USAGE.md#provider-plugins-third-party) in USAGE.md.
 
 ## Command Line Usage
 
