@@ -270,7 +270,7 @@ acme = "acme_tts:GENSAY_PROVIDER_SPEC"
 
 ```python
 # acme_tts/__init__.py — import-cheap module
-from gensay.providers.registry import ProviderSpec
+from gensay.plugin import ProviderSpec
 
 GENSAY_PROVIDER_SPEC = ProviderSpec(
     name="acme",
@@ -282,9 +282,13 @@ GENSAY_PROVIDER_SPEC = ProviderSpec(
 )
 ```
 
-Cloud providers should subclass `gensay.providers.cloud.CloudTTSProvider`
-and implement one hook (`_prepare`) plus `list_voices` /
-`get_supported_formats`; caching, playback, progress, and error wrapping
-come from the base class. Installed plugins appear in `--provider` choices
-and `gensay config keys` automatically; names that collide with builtins
-are skipped with a warning.
+Everything a plugin needs — `ProviderSpec`, `TTSProvider`,
+`CloudTTSProvider`, `PreparedSynthesis`, `TTSConfig`, `AudioFormat` — is
+importable from the stable `gensay.plugin` module; don't depend on internal
+`gensay.providers.*` paths, which may move between releases.
+
+Cloud providers should subclass `CloudTTSProvider` and implement one hook
+(`_prepare`) plus `list_voices` / `get_supported_formats`; caching,
+playback, progress, and error wrapping come from the base class. Installed
+plugins appear in `--provider` choices and `gensay config keys`
+automatically; names that collide with builtins are skipped with a warning.
