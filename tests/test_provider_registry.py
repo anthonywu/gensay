@@ -131,6 +131,90 @@ def test_spec_load_helper_uses_module_and_class_name():
     assert spec.load().__name__ == "MockProvider"
 
 
+class FakeEntryPoint:
+    """Stands in for importlib.metadata.EntryPoint."""
+
+    def __init__(self, name, obj=None, error: Exception | None = None):
+        self.name = name
+        self._obj = obj
+        self._error = error
+
+    def load(self):
+        if self._error:
+            raise self._error
+        return self._obj
+
+
+def _plugin_spec(name: str, **overrides) -> ProviderSpec:
+    defaults = dict(
+        name=name,
+        class_name="MockProvider",
+        module="gensay.providers.mock",
+        kind="cloud",
+    )
+    defaults.update(overrides)
+    return ProviderSpec(**defaults)
+
+
+class TestPluginDiscovery:
+    def test_valid_plugin_spec_discovered(self):
+        spec = _plugin_spec("acme")
+        found = registry.discover_plugin_specs([FakeEntryPoint("acme", spec)])
+        assert found == (spec,)
+
+    def test_plugin_class_loads_lazily(self):
+        spec = _plugin_spec("acme")
+        (found,) = registry.discover_plugin_specs([FakeEntryPoint("acme", spec)])
+        assert found.load().__name__ == "MockProvider"
+
+    def test_broken_import_skipped_with_warning(self, capsys):
+        found = registry.discover_plugin_specs(
+            [FakeEntryPoint("broken", error=ImportError("no such module"))]
+        )
+        assert found == ()
+        assert "could not load gensay provider plugin 'broken'" in capsys.readouterr().err
+
+    def test_non_spec_object_skipped(self, capsys):
+        found = registry.discover_plugin_specs([FakeEntryPoint("bad", object())])
+        assert found == ()
+        assert "must resolve to a ProviderSpec" in capsys.readouterr().err
+
+    def test_invalid_kind_skipped(self, capsys):
+        spec = _plugin_spec("weird", kind="quantum")
+        found = registry.discover_plugin_specs([FakeEntryPoint("weird", spec)])
+        assert found == ()
+        assert "invalid kind" in capsys.readouterr().err
+
+    def test_builtin_name_collision_skipped(self, capsys):
+        spec = _plugin_spec("openai")
+        found = registry.discover_plugin_specs([FakeEntryPoint("openai", spec)])
+        assert found == ()
+        assert "collides" in capsys.readouterr().err
+
+    def test_duplicate_plugin_names_first_wins(self, capsys):
+        first = _plugin_spec("acme")
+        second = _plugin_spec("acme")
+        found = registry.discover_plugin_specs(
+            [FakeEntryPoint("acme", first), FakeEntryPoint("acme", second)]
+        )
+        assert found == (first,)
+        assert "collides" in capsys.readouterr().err
+
+    def test_one_bad_plugin_does_not_block_others(self, capsys):
+        good = _plugin_spec("good")
+        found = registry.discover_plugin_specs(
+            [
+                FakeEntryPoint("broken", error=RuntimeError("boom")),
+                FakeEntryPoint("good", good),
+            ]
+        )
+        assert found == (good,)
+
+    def test_specs_table_extends_builtins(self):
+        # With no plugins installed, SPECS is exactly the builtins.
+        assert (*registry.BUILTIN_SPECS, *registry.discover_plugin_specs()) == registry.SPECS
+
+
 def test_registry_derivations_match_cli_surface():
     """main.py derives its provider surface from the registry."""
     from gensay import main as gensay_main
