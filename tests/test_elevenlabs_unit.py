@@ -225,6 +225,20 @@ def test_cli_voice_listing_shows_models_section(provider, capsys):
     assert "  eleven_v3 " in out
 
 
+def test_cli_voice_listing_json(provider, capsys):
+    import json
+
+    from gensay.main import list_voices as cli_list_voices
+
+    cli_list_voices(provider.p, as_json=True)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["provider"] == "ElevenLabs"
+    assert {v["name"] for v in payload["voices"]} >= {"Matilda - Professional", "River"}
+    model_ids = [m["id"] for m in payload["models"]]
+    assert "eleven_v3" in model_ids
+    assert [m["id"] for m in payload["models"] if m["current"]] == [DEFAULT_MODEL]
+
+
 def test_rate_mapped_and_clamped_to_speed(provider):
     p = provider.p
     assert p._get_voice_settings(None).speed == 1.0

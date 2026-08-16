@@ -154,6 +154,12 @@ def create_parser(user_cfg=None) -> argparse.ArgumentParser:
         action="store_true",
         help="List all available voices for the selected provider",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="Machine-readable JSON output (with --list-voices / -v '?')",
+    )
 
     # Advanced options
     # store_true with config default: CLI can only force True; use config/env to default True
@@ -443,39 +449,49 @@ def _print_models(provider: TTSProvider) -> None:
         print(f"{marker} {model['id']:<28}{suffix}")
 
 
-def list_voices(provider: TTSProvider) -> None:
+def _print_voices_text(provider: TTSProvider, provider_name: str) -> None:
+    """Human-readable voice (and model) listing."""
+    print(f"\nVoices for provider: {provider_name}\n")
+
+    voices = provider.list_voices()
+    if not voices:
+        print("No voices available", file=sys.stderr)
+        return
+
+    for voice in voices:
+        display_name = voice.get("name", voice["id"])
+        lang = voice.get("language", "Unknown")
+        desc = voice.get("description", "")
+
+        extra_info = [voice[k] for k in ("use_case", "accent", "age") if voice.get(k)]
+        if extra_info:
+            desc = f"{desc} - {', '.join(extra_info)}" if desc else ", ".join(extra_info)
+
+        if desc:
+            print(f"{display_name:<20} {lang:<10} # {desc}")
+        else:
+            print(f"{display_name:<20} {lang:<10}")
+
+    _print_models(provider)
+
+
+def list_voices(provider: TTSProvider, as_json: bool = False) -> None:
     """List available voices."""
     try:
         provider_name = getattr(provider, "display_name", None) or provider.__class__.__name__.replace("Provider", "")
-        print(f"\nVoices for provider: {provider_name}\n")
 
-        voices = provider.list_voices()
-        if not voices:
-            print("No voices available", file=sys.stderr)
+        if as_json:
+            import json
+
+            payload = {
+                "provider": provider_name,
+                "voices": provider.list_voices(),
+                "models": provider.list_models(),
+            }
+            print(json.dumps(payload, indent=2))
             return
 
-        for voice in voices:
-            display_name = voice.get("name", voice["id"])
-            lang = voice.get("language", "Unknown")
-            desc = voice.get("description", "")
-
-            extra_info = []
-            if "use_case" in voice and voice["use_case"]:
-                extra_info.append(voice["use_case"])
-            if "accent" in voice and voice["accent"]:
-                extra_info.append(voice["accent"])
-            if "age" in voice and voice["age"]:
-                extra_info.append(voice["age"])
-
-            if extra_info:
-                desc = f"{desc} - {', '.join(extra_info)}" if desc else ", ".join(extra_info)
-
-            if desc:
-                print(f"{display_name:<20} {lang:<10} # {desc}")
-            else:
-                print(f"{display_name:<20} {lang:<10}")
-
-        _print_models(provider)
+        _print_voices_text(provider, provider_name)
     except NotImplementedError:
         print(f"Voice listing not implemented for {provider.__class__.__name__}", file=sys.stderr)
         sys.exit(1)
@@ -1138,7 +1154,14 @@ def main():  # noqa: C901
         sys.exit(1)
 
     # Prefer daemon for speak/save/list_voices when appropriate
-    if not args.repl and not args.cache_ahead and _try_daemon_speak_or_save(args, text):
+    # (JSON voice listings go direct: the daemon path has no models data)
+    json_listing = args.list_voices and args.as_json
+    if (
+        not args.repl
+        and not args.cache_ahead
+        and not json_listing
+        and _try_daemon_speak_or_save(args, text)
+    ):
         return
 
     config = TTSConfig(
@@ -1219,7 +1242,7 @@ def main():  # noqa: C901
         )
 
     if args.list_voices:
-        list_voices(provider)
+        list_voices(provider, as_json=args.as_json)
         return
 
     if args.repl:

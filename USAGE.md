@@ -106,6 +106,7 @@ gensay --provider chatterbox --cache-ahead "Long text to pre-cache"
 gensay --provider deepgram "Default Flux voice (haley)"
 gensay -v '?' # List available voices
 gensay --provider macos --list-voices # List voices for specific provider
+gensay -p deepgram -v '?' --json # Machine-readable: {provider, voices, models}
 ```
 
 ## Hero examples — every provider
