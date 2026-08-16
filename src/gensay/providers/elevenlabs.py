@@ -29,6 +29,17 @@ class ElevenLabsProvider(CloudTTSProvider):
     cache_namespace = "elevenlabs"
     display_name = "ElevenLabs"
 
+    # ElevenLabs TTS models (also queryable live via GET /v1/models; hardcoded
+    # so listing works offline — unlisted ids still pass through as-is)
+    MODELS = [
+        {"id": "eleven_v3", "description": "Newest, most expressive; 70+ languages; audio tags"},
+        {"id": "eleven_multilingual_v2", "description": "Highest quality, long-form; 29 languages"},
+        {"id": "eleven_flash_v2_5", "description": "Ultra-low latency, cheapest (default)"},
+        {"id": "eleven_flash_v2", "description": "Ultra-low latency, English only"},
+        {"id": "eleven_turbo_v2_5", "description": "Deprecated — use eleven_flash_v2_5"},
+        {"id": "eleven_turbo_v2", "description": "Deprecated — use eleven_flash_v2"},
+    ]
+
     # Map our formats to ElevenLabs supported formats
     FORMAT_MAP = {
         AudioFormat.MP3: "mp3_44100_128",
@@ -50,6 +61,7 @@ class ElevenLabsProvider(CloudTTSProvider):
 
         api_key = self.resolve_api_key("ELEVENLABS_API_KEY", config, display_name="ElevenLabs")
         self.client = ElevenLabs(api_key=api_key)
+        self.model = (config.extra.get("model") if config else None) or DEFAULT_MODEL
         self._voice_cache: list[dict[str, Any]] | None = None
         self._voice_id_map: dict[str, str] | None = None  # name -> voice_id
 
@@ -63,7 +75,7 @@ class ElevenLabsProvider(CloudTTSProvider):
         voice_name = voice or self.config.voice or "Sarah"
         voice_id = self._resolve_voice_id(voice_name)
         voice_settings = self._get_voice_settings(rate)
-        model = (self.config.extra.get("model") if self.config else None) or DEFAULT_MODEL
+        model = self.model
         el_format = (
             "mp3_44100_128" if format is None else self.FORMAT_MAP.get(format, "mp3_44100_128")
         )
@@ -96,6 +108,10 @@ class ElevenLabsProvider(CloudTTSProvider):
     def _play(self, audio_data: bytes, suffix: str) -> None:  # noqa: ARG002
         """Play via the ElevenLabs SDK (pyaudio when available, else ffplay)."""
         play(io.BytesIO(audio_data))
+
+    def list_models(self) -> list[dict[str, Any]]:
+        """List known ElevenLabs TTS models, marking the one this instance uses."""
+        return [{**m, "current": m["id"] == self.model} for m in self.MODELS]
 
     def list_voices(self) -> list[dict[str, Any]]:
         """List available ElevenLabs voices."""
