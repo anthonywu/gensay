@@ -369,3 +369,75 @@ def test_main_injects_keychain_api_key_into_provider(
 
     assert captured["config"].extra["api_key"] == "sk-from-keychain"
     assert captured["text"] == "hello"
+
+
+class TestConfigShowProviderAvailability:
+    """`config show` reports detected env keys / keychain items per provider."""
+
+    @pytest.fixture(autouse=True)
+    def _isolated_credentials(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+        for var in (
+            "OPENAI_API_KEY",
+            "ELEVENLABS_API_KEY",
+            "DEEPGRAM_API_KEY",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_PROFILE",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+    def test_ready_via_env_and_keychain(
+        self, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
+    ):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
+        fake_keyring[("gensay", "elevenlabs.api_key")] = "sk-keychain"
+
+        from gensay.main import config_main
+
+        config_main(["show"])
+        out = capsys.readouterr().out
+        assert "providers:" in out
+        assert "sk-env" not in out and "sk-keychain" not in out  # detection only
+
+        lines = {ln.split()[0]: ln for ln in out.splitlines() if ln.startswith("  ")}
+        assert "ready" in lines["openai"] and "env OPENAI_API_KEY" in lines["openai"]
+        assert "ready" in lines["elevenlabs"]
+        assert "keychain elevenlabs.api_key" in lines["elevenlabs"]
+        assert "needs setup" in lines["deepgram"]
+        assert "gensay config set deepgram.api_key" in lines["deepgram"]
+        assert "ready" in lines["mock"] and "no credentials needed" in lines["mock"]
+
+    def test_env_plus_keychain_shows_both_sources(
+        self, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
+    ):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
+        fake_keyring[("gensay", "openai.api_key")] = "sk-keychain"
+
+        from gensay.main import config_main
+
+        config_main(["show"])
+        out = capsys.readouterr().out
+        (openai_line,) = [ln for ln in out.splitlines() if ln.split()[:1] == ["openai"]]
+        assert "env OPENAI_API_KEY + keychain openai.api_key" in openai_line
+
+    def test_polly_detects_aws_env(self, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys):
+        monkeypatch.setenv("AWS_PROFILE", "work")
+
+        from gensay.main import config_main
+
+        config_main(["show"])
+        out = capsys.readouterr().out
+        (polly_line,) = [ln for ln in out.splitlines() if ln.strip().startswith("polly")]
+        assert "ready" in polly_line and "AWS_PROFILE=work" in polly_line
+
+    def test_json_includes_providers(self, fake_keyring, capsys):
+        import json as json_mod
+
+        from gensay.main import config_main
+
+        config_main(["show", "--json"])
+        payload = json_mod.loads(capsys.readouterr().out)
+        providers = {p["name"]: p for p in payload["providers"]}
+        assert providers["mock"]["ready"] is True
+        assert providers["openai"]["ready"] is False
+        assert {"name", "kind", "ready", "detail"} <= set(providers["openai"])

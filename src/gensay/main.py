@@ -712,6 +712,79 @@ def _try_daemon_speak_or_save(args, text: str) -> bool:  # noqa: C901
         sys.exit(1)
 
 
+def _detect_aws_credentials() -> str | None:
+    """Cheap heuristic for the AWS credential chain (no boto3 import).
+
+    Returns a short human description of what was detected, or None.
+    """
+    if os.environ.get("AWS_ACCESS_KEY_ID", "").strip():
+        return "env AWS_ACCESS_KEY_ID"
+    if profile := os.environ.get("AWS_PROFILE", "").strip():
+        return f"env AWS_PROFILE={profile}"
+    with contextlib.suppress(Exception):
+        from .user_config import get_config_value
+
+        if profile := get_config_value("polly.aws_profile"):
+            return f"config polly.aws_profile={profile}"
+    for candidate in ("~/.aws/credentials", "~/.aws/config"):
+        if Path(candidate).expanduser().is_file():
+            return candidate
+    return None
+
+
+def _api_key_status(spec, secret_key: str | None) -> tuple[bool, str]:
+    """(ready, detail) for a cloud provider that authenticates via api key."""
+    from .user_config import get_secret
+
+    sources = []
+    if spec.env_api_key and os.environ.get(spec.env_api_key, "").strip():
+        sources.append(f"env {spec.env_api_key}")
+    if secret_key:
+        with contextlib.suppress(Exception):
+            if get_secret(secret_key) is not None:
+                sources.append(f"keychain {secret_key}")
+    if sources:
+        return True, f"api key from {' + '.join(sources)}"
+    hints = []
+    if spec.env_api_key:
+        hints.append(f"set {spec.env_api_key}")
+    if secret_key:
+        hints.append(f"`gensay config set {secret_key}`")
+    return False, f"no api key detected — {' or '.join(hints)}"
+
+
+def _credential_status(spec) -> tuple[bool, str]:
+    """(ready, detail) for one ProviderSpec."""
+    secret_key = (
+        f"{spec.name}.api_key" if any(sub == "api_key" for sub, _ in spec.config_keys) else None
+    )
+    if spec.kind != "cloud":
+        return True, "no credentials needed"
+    if spec.env_api_key or secret_key:
+        return _api_key_status(spec, secret_key)
+    if spec.name == "polly":
+        if found := _detect_aws_credentials():
+            return True, f"AWS credentials detected ({found})"
+        return False, "no AWS credentials detected — run `aws configure` or set AWS_PROFILE"
+    return True, "uses an external credential chain (checked at runtime)"
+
+
+def provider_availability() -> list[dict]:
+    """Detected credentials per registered provider (env, keychain, AWS chain).
+
+    Mirrors runtime resolution: cloud providers read their env var first,
+    then the OS-keychain ``<provider>.api_key``. Detection only — values are
+    never read into the output.
+    """
+    from .providers.registry import SPECS
+
+    out: list[dict] = []
+    for spec in sorted(SPECS, key=lambda s: s.name):
+        ready, detail = _credential_status(spec)
+        out.append({"name": spec.name, "kind": spec.kind, "ready": ready, "detail": detail})
+    return out
+
+
 def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
     """Entry for `gensay config ...`."""
     parser = create_config_parser()
@@ -755,10 +828,17 @@ def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
             "exists": bool(cfg.path and cfg.path.is_file()),
             "loaded": cfg.loaded,
         }
+        providers = provider_availability()
         if args.as_json:
             print(
                 json.dumps(
-                    {"meta": meta, "defaults": data, "secrets_in_keychain": secrets}, indent=2
+                    {
+                        "meta": meta,
+                        "defaults": data,
+                        "secrets_in_keychain": secrets,
+                        "providers": providers,
+                    },
+                    indent=2,
                 )
             )
         else:
@@ -778,6 +858,11 @@ def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
                         print(f"  {k} = {v!r}")
             for k in secrets:
                 print(f"  {k} = (stored in OS keychain)")
+            print("providers:")
+            width = max(len(p["name"]) for p in providers)
+            for p in providers:
+                status = "ready" if p["ready"] else "needs setup"
+                print(f"  {p['name']:<{width}}  {status:<11}  {p['detail']}")
         return
 
     if args.config_cmd == "init":
