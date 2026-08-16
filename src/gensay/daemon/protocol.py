@@ -6,7 +6,7 @@ import json
 import struct
 import uuid
 from dataclasses import asdict, dataclass, field
-from typing import Any, BinaryIO, Literal
+from typing import Any, Literal
 
 PROTOCOL_VERSION = 1
 MAX_FRAME_BYTES = 1 * 1024 * 1024  # 1 MiB
@@ -215,8 +215,8 @@ def decode_frame(data: bytes) -> dict[str, Any]:
     return parsed
 
 
-def read_frame(sock: BinaryIO | Any, max_bytes: int = MAX_FRAME_BYTES) -> dict[str, Any]:
-    """Read one length-prefixed JSON frame from a socket/file-like object."""
+def read_frame(sock: Any, max_bytes: int = MAX_FRAME_BYTES) -> dict[str, Any]:
+    """Read one length-prefixed JSON frame from a socket-like object (needs ``recv``)."""
     header = _recv_exact(sock, HEADER.size)
     (length,) = HEADER.unpack(header)
     if length > max_bytes:
@@ -231,7 +231,8 @@ def read_frame(sock: BinaryIO | Any, max_bytes: int = MAX_FRAME_BYTES) -> dict[s
     return parsed
 
 
-def write_frame(sock: BinaryIO | Any, obj: dict[str, Any]) -> None:
+def write_frame(sock: Any, obj: dict[str, Any]) -> None:
+    """Write one length-prefixed JSON frame to a socket-like object (needs ``sendall``)."""
     data = encode_frame(obj)
     sock.sendall(data)
 

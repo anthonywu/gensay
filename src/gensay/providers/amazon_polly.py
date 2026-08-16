@@ -1,10 +1,7 @@
 """Amazon Polly TTS provider implementation."""
 
-import hashlib
 import os
 import subprocess
-import tempfile
-from pathlib import Path
 from typing import Any
 
 try:
@@ -15,8 +12,8 @@ try:
 except ImportError:
     BOTO3_AVAILABLE = False
 
-from ..cache import TTSCache
-from .base import AudioFormat, TTSConfig, TTSProvider
+from .base import AudioFormat, TTSConfig
+from .cloud import CloudTTSProvider, PreparedSynthesis
 
 
 def _get_credentials_from_aws_cli() -> dict[str, str] | None:
@@ -43,14 +40,18 @@ def _get_credentials_from_aws_cli() -> dict[str, str] | None:
     return None
 
 
-class AmazonPollyProvider(TTSProvider):
+class AmazonPollyProvider(CloudTTSProvider):
     """TTS provider using Amazon Polly service.
 
     AWS credentials can be provided via:
-    1. Environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
-    2. AWS credentials file: ~/.aws/credentials
-    3. IAM role (when running on AWS infrastructure)
-    4. Config extra: config.extra['aws_access_key_id'], config.extra['aws_secret_access_key']
+    1. Config extra: config.extra['aws_access_key_id'], config.extra['aws_secret_access_key']
+    2. Environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
+    3. AWS credentials file: ~/.aws/credentials
+    4. IAM role (when running on AWS infrastructure)
+
+    Note: unlike the api_key cloud providers (env var first), explicit
+    config.extra values take precedence here — matching boto3's own
+    convention that explicit client kwargs beat ambient environment.
     """
 
     # Map our formats to Polly output formats
@@ -68,6 +69,9 @@ class AmazonPollyProvider(TTSProvider):
     ENGINE_NEURAL = "neural"
     ENGINE_LONG_FORM = "long-form"
     ENGINE_GENERATIVE = "generative"
+
+    cache_namespace = "polly"
+    display_name = "Amazon Polly"
 
     def __init__(self, config: TTSConfig | None = None):
         super().__init__(config)
@@ -129,117 +133,33 @@ class AmazonPollyProvider(TTSProvider):
 
         # Cache for voice list
         self._voice_cache: list[dict[str, Any]] | None = None
-        self._cache = TTSCache(enabled=config.cache_enabled if config else True)
 
-    def speak(self, text: str, voice: str | None = None, rate: int | None = None) -> None:
-        """Speak text using Amazon Polly."""
-        voice = voice or self.config.voice or "Joanna"  # Default US English neural voice
-
-        try:
-            self.update_progress(0.0, "Checking cache...")
-
-            ssml_text = self._wrap_with_rate(text, rate)
-            engine = self._get_engine_for_voice(voice)
-            cache_key = self._get_cache_key(ssml_text, voice, engine, "mp3")
-
-            audio_data = self._cache.get(cache_key)
-
-            if audio_data is None:
-                self.update_progress(0.2, "Generating speech...")
-
-                # Generate audio to a temp file, then play it
-                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                    temp_path = Path(f.name)
-
-                # Synthesize speech
-                response = self.client.synthesize_speech(
-                    Text=ssml_text,
-                    TextType="ssml",
-                    OutputFormat="mp3",
-                    VoiceId=voice,
-                    Engine=engine,
-                )
-
-                self.update_progress(0.5, "Playing audio...")
-
-                # Write audio stream to file and cache
-                audio_data = response["AudioStream"].read()
-                temp_path.write_bytes(audio_data)
-                self._cache.put(cache_key, audio_data)
-
-                # Play using afplay on macOS
-                subprocess.run(["afplay", str(temp_path)], check=True)
-            else:
-                self.update_progress(0.5, "Using cached audio...")
-
-                # Write to temp file for playback
-                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                    temp_path = Path(f.name)
-                temp_path.write_bytes(audio_data)
-
-                # Play using afplay on macOS
-                subprocess.run(["afplay", str(temp_path)], check=True)
-
-            self.update_progress(1.0, "Complete")
-
-        except (BotoCoreError, ClientError) as e:
-            raise RuntimeError(f"Amazon Polly TTS failed: {e}") from e
-        finally:
-            # Clean up temp file
-            if temp_path.exists():
-                temp_path.unlink()
-
-    def save_to_file(
+    def _prepare(
         self,
         text: str,
-        output_path: str | Path,
-        voice: str | None = None,
-        rate: int | None = None,
-        format: AudioFormat | None = None,
-    ) -> Path:
-        """Save speech to file using Amazon Polly."""
-        output_path = Path(output_path)
-        voice = voice or self.config.voice or "Joanna"
-        format = format or self.config.format or AudioFormat.from_extension(output_path)
-
-        # Map format to Polly format
-        polly_format = self.FORMAT_MAP.get(format, "mp3")
+        voice: str | None,
+        rate: int | None,
+        format: AudioFormat | None,
+    ) -> PreparedSynthesis:
+        voice = voice or self.config.voice or "Joanna"  # Default US English neural voice
+        polly_format = "mp3" if format is None else self.FORMAT_MAP.get(format, "mp3")
         ssml_text = self._wrap_with_rate(text, rate)
         engine = self._get_engine_for_voice(voice)
-        cache_key = self._get_cache_key(ssml_text, voice, engine, polly_format)
 
-        try:
-            self.update_progress(0.0, "Checking cache...")
+        def synthesize() -> bytes:
+            response = self.client.synthesize_speech(
+                Text=ssml_text,
+                TextType="ssml",
+                OutputFormat=polly_format,
+                VoiceId=voice,
+                Engine=engine,
+            )
+            return response["AudioStream"].read()
 
-            audio_data = self._cache.get(cache_key)
-
-            if audio_data is None:
-                self.update_progress(0.2, "Generating speech...")
-
-                response = self.client.synthesize_speech(
-                    Text=ssml_text,
-                    TextType="ssml",
-                    OutputFormat=polly_format,
-                    VoiceId=voice,
-                    Engine=engine,
-                )
-
-                self.update_progress(0.5, "Saving to file...")
-
-                # Write audio stream to file and cache
-                audio_data = response["AudioStream"].read()
-                output_path.write_bytes(audio_data)
-                self._cache.put(cache_key, audio_data)
-            else:
-                self.update_progress(0.5, "Using cached audio...")
-                output_path.write_bytes(audio_data)
-
-            self.update_progress(1.0, "Complete")
-
-            return output_path
-
-        except (BotoCoreError, ClientError) as e:
-            raise RuntimeError(f"Amazon Polly TTS failed: {e}") from e
+        return PreparedSynthesis(
+            cache_parts=(ssml_text, voice, engine, polly_format),
+            synthesize=synthesize,
+        )
 
     def list_voices(self) -> list[dict[str, Any]]:
         """List available Amazon Polly voices."""
@@ -336,8 +256,3 @@ class AmazonPollyProvider(TTSProvider):
 
         # Fall back to configured engine
         return self.engine
-
-    def _get_cache_key(self, ssml_text: str, voice: str, engine: str, format: str) -> str:
-        """Generate cache key for SSML text/voice/engine/format combination."""
-        data = f"polly|{ssml_text}|{voice}|{engine}|{format}"
-        return hashlib.sha256(data.encode()).hexdigest()

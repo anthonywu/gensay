@@ -128,5 +128,17 @@ class NetworkFallbackProvider(TTSProvider):
     def list_voices(self) -> list[dict[str, Any]]:
         return self._primary.list_voices()
 
+    def list_models(self) -> list[dict[str, Any]]:
+        return self._primary.list_models()
+
     def get_supported_formats(self) -> list[AudioFormat]:
         return self._primary.get_supported_formats()
+
+    @property
+    def display_name(self) -> str | None:
+        """Voice/model listings should show the wrapped provider, not the wrapper."""
+        return getattr(self._primary, "display_name", None)
+
+    @property
+    def cache_namespace(self) -> str | None:
+        return getattr(self._primary, "cache_namespace", None)

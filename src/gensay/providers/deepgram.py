@@ -18,17 +18,12 @@ Default model: config.extra['model'] (e.g. `gensay config set deepgram.model`),
 else flux-haley-en.
 """
 
-import hashlib
-import os
-import subprocess
-import tempfile
-from pathlib import Path
 from typing import Any
 
 import httpx
 
-from ..cache import TTSCache
-from .base import AudioFormat, TTSConfig, TTSProvider
+from .base import AudioFormat, TTSConfig
+from .cloud import CloudTTSProvider, PreparedSynthesis
 
 DEFAULT_MODEL = "flux-haley-en"
 API_BASE_URL = "https://api.deepgram.com"
@@ -241,8 +236,11 @@ for _entry in sorted(VOICE_CATALOG, key=lambda e: {"aura": 0, "aura-2": 1, "flux
     _NAME_INDEX[_entry["name"].lower()] = _entry["id"]
 
 
-class DeepgramProvider(TTSProvider):
+class DeepgramProvider(CloudTTSProvider):
     """TTS provider using Deepgram's batch REST API (Flux and Aura model families)."""
+
+    cache_namespace = "deepgram"
+    display_name = "Deepgram"
 
     # Map our formats to Deepgram (encoding, container) request params.
     # Container omitted unless it must disambiguate (wav for raw linear16, ogg for opus).
@@ -261,15 +259,12 @@ class DeepgramProvider(TTSProvider):
     def __init__(self, config: TTSConfig | None = None):
         super().__init__(config)
 
-        api_key = os.getenv("DEEPGRAM_API_KEY") or (config.extra.get("api_key") if config else None)
-
-        if not api_key:
-            raise ValueError(
-                "Deepgram API key not found. Please set DEEPGRAM_API_KEY "
-                "environment variable or pass it in config.extra['api_key'] "
-                "(e.g. via `gensay config set deepgram.api_key`)"
-            )
-
+        api_key = self.resolve_api_key(
+            "DEEPGRAM_API_KEY",
+            config,
+            display_name="Deepgram",
+            config_hint="(e.g. via `gensay config set deepgram.api_key`)",
+        )
         self._http = httpx.Client(
             base_url=API_BASE_URL,
             headers={"Authorization": f"Token {api_key}"},
@@ -278,84 +273,33 @@ class DeepgramProvider(TTSProvider):
         self._default_model = (
             (config.extra.get("model") if config else None) or DEFAULT_MODEL
         ).lower()
-        self._cache = TTSCache(enabled=config.cache_enabled if config else True)
+        if not self._default_model.startswith(("flux-", "aura-")):
+            raise ValueError(
+                f"Invalid Deepgram model {self._default_model!r}. Deepgram models are "
+                f"full voice strings like {DEFAULT_MODEL!r}; see `gensay -p deepgram -v '?'`."
+            )
 
-    def speak(self, text: str, voice: str | None = None, rate: int | None = None) -> None:
-        """Speak text using Deepgram TTS."""
-        model = self._resolve_model(voice)
-        speed = self._rate_to_speed(model, rate)
-        encoding = "mp3"
-        container = None
-        cache_key = self._get_cache_key(text, model, speed, encoding, container)
-
-        temp_path: Path | None = None
-        try:
-            self.update_progress(0.0, "Checking cache...")
-
-            audio_data = self._cache.get(cache_key)
-
-            if audio_data is None:
-                self.update_progress(0.2, "Generating speech...")
-                audio_data = self._synthesize(text, model, encoding, container, speed)
-                self._cache.put(cache_key, audio_data)
-            else:
-                self.update_progress(0.5, "Using cached audio...")
-
-            self.update_progress(0.8, "Playing audio...")
-
-            # Play using afplay on macOS (temp file survives until after playback)
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                temp_path = Path(f.name)
-            temp_path.write_bytes(audio_data)
-            subprocess.run(["afplay", str(temp_path)], check=True)
-
-            self.update_progress(1.0, "Complete")
-
-        except Exception as e:
-            raise RuntimeError(f"Deepgram TTS failed: {e}") from e
-        finally:
-            if temp_path is not None and temp_path.exists():
-                temp_path.unlink()
-
-    def save_to_file(
+    def _prepare(
         self,
         text: str,
-        output_path: str | Path,
-        voice: str | None = None,
-        rate: int | None = None,
-        format: AudioFormat | None = None,
-    ) -> Path:
-        """Save speech to file using Deepgram TTS."""
-        output_path = Path(output_path)
+        voice: str | None,
+        rate: int | None,
+        format: AudioFormat | None,
+    ) -> PreparedSynthesis:
         model = self._resolve_model(voice)
-        format = format or self.config.format or AudioFormat.from_extension(output_path)
         speed = self._rate_to_speed(model, rate)
+        if format is None:
+            encoding, container = "mp3", None
+        else:
+            encoding, container = self.FORMAT_MAP.get(format, ("mp3", None))
 
-        encoding, container = self.FORMAT_MAP.get(format, ("mp3", None))
-        cache_key = self._get_cache_key(text, model, speed, encoding, container)
+        def synthesize() -> bytes:
+            return self._synthesize(text, model, encoding, container, speed)
 
-        try:
-            self.update_progress(0.0, "Checking cache...")
-
-            audio_data = self._cache.get(cache_key)
-
-            if audio_data is None:
-                self.update_progress(0.2, "Generating speech...")
-                audio_data = self._synthesize(text, model, encoding, container, speed)
-
-                self.update_progress(0.5, "Saving to file...")
-                output_path.write_bytes(audio_data)
-                self._cache.put(cache_key, audio_data)
-            else:
-                self.update_progress(0.5, "Using cached audio...")
-                output_path.write_bytes(audio_data)
-
-            self.update_progress(1.0, "Complete")
-
-            return output_path
-
-        except Exception as e:
-            raise RuntimeError(f"Deepgram TTS failed: {e}") from e
+        return PreparedSynthesis(
+            cache_parts=(text, model, speed, encoding, container),
+            synthesize=synthesize,
+        )
 
     def list_voices(self) -> list[dict[str, Any]]:
         """List available Deepgram TTS voices (static — models are the voices)."""
@@ -379,7 +323,7 @@ class DeepgramProvider(TTSProvider):
 
         raise ValueError(
             f"Voice '{voice}' not found. Pass a full model string (e.g. {DEFAULT_MODEL!r}) "
-            f"or a short name from list_voices()."
+            f"or a short name from `gensay -p deepgram -v '?'`."
         )
 
     def _rate_to_speed(self, model: str, rate: int | None) -> float | None:
@@ -419,15 +363,3 @@ class DeepgramProvider(TTSProvider):
         response = self._http.post(path, params=params, json={"text": text})
         response.raise_for_status()
         return response.content
-
-    def _get_cache_key(
-        self,
-        text: str,
-        model: str,
-        speed: float | None,
-        encoding: str,
-        container: str | None,
-    ) -> str:
-        """Generate cache key for text/model/speed/encoding combination."""
-        data = f"deepgram|{text}|{model}|{speed}|{encoding}|{container}"
-        return hashlib.sha256(data.encode()).hexdigest()

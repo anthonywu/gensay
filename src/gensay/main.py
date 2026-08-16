@@ -18,41 +18,27 @@ from .providers.base import AudioFormat, TTSConfig
 if TYPE_CHECKING:
     from .providers.base import TTSProvider
 
-# Provider names for argparse choices (avoid importing heavy modules at top level)
-PROVIDER_NAMES = ["chatterbox", "deepgram", "elevenlabs", "macos", "mock", "openai", "polly"]
+# All provider facts are declared once in providers/registry.py; these are
+# cheap derivations (the registry imports no heavy provider modules).
+from .providers.registry import load_all_provider_classes, names_where, provider_names
+
+# Provider names for argparse choices
+PROVIDER_NAMES = provider_names()
 
 # Providers with expensive process-local state — prefer daemon when available
-WARM_ELIGIBLE_PROVIDERS = frozenset({"chatterbox"})
+WARM_ELIGIBLE_PROVIDERS = names_where(lambda s: s.warm_eligible)
 
 # Providers the daemon may host: warm-eligible ones, plus mock for tests/dev.
 # Cloud providers are excluded on purpose — nothing worth keeping resident.
-DAEMON_HOSTABLE_PROVIDERS = frozenset({"chatterbox", "mock"})
+DAEMON_HOSTABLE_PROVIDERS = names_where(lambda s: s.daemon_hostable)
 
 # Network-dependent providers — get offline fallback to macos `say`
-CLOUD_PROVIDERS = frozenset({"deepgram", "elevenlabs", "openai", "polly"})
+CLOUD_PROVIDERS = names_where(lambda s: s.kind == "cloud")
 
 
 def get_providers() -> dict:
     """Lazily import and return provider classes."""
-    from .providers import (
-        AmazonPollyProvider,
-        ChatterboxProvider,
-        DeepgramProvider,
-        ElevenLabsProvider,
-        MacOSSayProvider,
-        MockProvider,
-        OpenAIProvider,
-    )
-
-    return {
-        "chatterbox": ChatterboxProvider,
-        "deepgram": DeepgramProvider,
-        "elevenlabs": ElevenLabsProvider,
-        "macos": MacOSSayProvider,
-        "mock": MockProvider,
-        "openai": OpenAIProvider,
-        "polly": AmazonPollyProvider,
-    }
+    return load_all_provider_classes()
 
 
 def platform_default_provider() -> str:
@@ -135,6 +121,12 @@ def create_parser(user_cfg=None) -> argparse.ArgumentParser:
         default=d.get("rate"),
         help="Speech rate in words per minute",
     )
+    parser.add_argument(
+        "-m",
+        "--model",
+        help="Provider model id for this invocation, e.g. tts-1-hd or gpt-4o-mini-tts "
+        "(overrides `gensay config set <provider>.model`; see --list-voices for choices)",
+    )
 
     # Output options
     parser.add_argument(
@@ -161,6 +153,12 @@ def create_parser(user_cfg=None) -> argparse.ArgumentParser:
         "--list-voices",
         action="store_true",
         help="List all available voices for the selected provider",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="Machine-readable JSON output (with --list-voices / -v '?')",
     )
 
     # Advanced options
@@ -394,8 +392,10 @@ def create_config_parser() -> argparse.ArgumentParser:
     p_set.add_argument("key", help="Key (e.g. provider, auto_daemon, daemon.provider)")
     p_set.add_argument(
         "value",
-        nargs="+",
-        help="Value (bool: true/false; join multiple words with spaces for strings)",
+        nargs="*",
+        help="Value (bool: true/false; join multiple words with spaces for strings). "
+        "For secret keys (*.api_key), omit the value to be prompted with hidden "
+        "input — keeps the secret out of shell history.",
     )
 
     p_unset = sub.add_parser("unset", help="Remove a key from config.toml")
@@ -430,37 +430,68 @@ def get_text_input(args) -> str:
         return ""
 
 
-def list_voices(provider: TTSProvider) -> None:
+def _print_models(provider: TTSProvider) -> None:
+    """Print the provider's selectable models, if it declares any."""
+    models = provider.list_models()
+    if not models:
+        return
+    namespace = getattr(provider, "cache_namespace", None)
+    hint = (
+        f" (pick with -m <id>, or set with `gensay config set {namespace}.model <id>`)"
+        if namespace
+        else " (pick with -m <id>)"
+    )
+    print(f"\nModels{hint}:\n")
+    for model in models:
+        marker = "*" if model.get("current") else " "
+        desc = model.get("description", "")
+        suffix = f" # {desc}" if desc else ""
+        print(f"{marker} {model['id']:<28}{suffix}")
+
+
+def _print_voices_text(provider: TTSProvider, provider_name: str) -> None:
+    """Human-readable voice (and model) listing."""
+    print(f"\nVoices for provider: {provider_name}\n")
+
+    voices = provider.list_voices()
+    if not voices:
+        print("No voices available", file=sys.stderr)
+        return
+
+    for voice in voices:
+        display_name = voice.get("name", voice["id"])
+        lang = voice.get("language", "Unknown")
+        desc = voice.get("description", "")
+
+        extra_info = [voice[k] for k in ("use_case", "accent", "age") if voice.get(k)]
+        if extra_info:
+            desc = f"{desc} - {', '.join(extra_info)}" if desc else ", ".join(extra_info)
+
+        if desc:
+            print(f"{display_name:<20} {lang:<10} # {desc}")
+        else:
+            print(f"{display_name:<20} {lang:<10}")
+
+    _print_models(provider)
+
+
+def list_voices(provider: TTSProvider, as_json: bool = False) -> None:
     """List available voices."""
     try:
-        provider_name = provider.__class__.__name__.replace("Provider", "")
-        print(f"\nVoices for provider: {provider_name}\n")
+        provider_name = getattr(provider, "display_name", None) or provider.__class__.__name__.replace("Provider", "")
 
-        voices = provider.list_voices()
-        if not voices:
-            print("No voices available", file=sys.stderr)
+        if as_json:
+            import json
+
+            payload = {
+                "provider": provider_name,
+                "voices": provider.list_voices(),
+                "models": provider.list_models(),
+            }
+            print(json.dumps(payload, indent=2))
             return
 
-        for voice in voices:
-            display_name = voice.get("name", voice["id"])
-            lang = voice.get("language", "Unknown")
-            desc = voice.get("description", "")
-
-            extra_info = []
-            if "use_case" in voice and voice["use_case"]:
-                extra_info.append(voice["use_case"])
-            if "accent" in voice and voice["accent"]:
-                extra_info.append(voice["accent"])
-            if "age" in voice and voice["age"]:
-                extra_info.append(voice["age"])
-
-            if extra_info:
-                desc = f"{desc} - {', '.join(extra_info)}" if desc else ", ".join(extra_info)
-
-            if desc:
-                print(f"{display_name:<20} {lang:<10} # {desc}")
-            else:
-                print(f"{display_name:<20} {lang:<10}")
+        _print_voices_text(provider, provider_name)
     except NotImplementedError:
         print(f"Voice listing not implemented for {provider.__class__.__name__}", file=sys.stderr)
         sys.exit(1)
@@ -724,6 +755,81 @@ def _try_daemon_speak_or_save(args, text: str) -> bool:  # noqa: C901
         sys.exit(1)
 
 
+def _detect_aws_credentials() -> str | None:
+    """Cheap heuristic for the AWS credential chain (no boto3 import).
+
+    Returns a short human description of what was detected, or None.
+    """
+    if os.environ.get("AWS_ACCESS_KEY_ID", "").strip():
+        return "env AWS_ACCESS_KEY_ID"
+    if profile := os.environ.get("AWS_PROFILE", "").strip():
+        return f"env AWS_PROFILE={profile}"
+    with contextlib.suppress(Exception):
+        from .user_config import get_config_value
+
+        if profile := get_config_value("polly.aws_profile"):
+            return f"config polly.aws_profile={profile}"
+    for candidate in ("~/.aws/credentials", "~/.aws/config"):
+        if Path(candidate).expanduser().is_file():
+            return candidate
+    return None
+
+
+def _api_key_status(spec, secret_key: str | None) -> tuple[bool, str]:
+    """(ready, detail) for a cloud provider that authenticates via api key."""
+    from .user_config import get_secret
+
+    sources = []
+    if spec.env_api_key and os.environ.get(spec.env_api_key, "").strip():
+        sources.append(f"env {spec.env_api_key}")
+    if secret_key:
+        with contextlib.suppress(Exception):
+            if get_secret(secret_key) is not None:
+                sources.append(f"keychain {secret_key}")
+    if sources:
+        return True, f"api key from {' + '.join(sources)}"
+    hints = []
+    if spec.env_api_key:
+        hints.append(f"set {spec.env_api_key}")
+    if secret_key:
+        hints.append(f"`gensay config set {secret_key}`")
+    return False, f"no api key detected — {' or '.join(hints)}"
+
+
+def _credential_status(spec) -> tuple[bool, str]:
+    """(ready, detail) for one ProviderSpec."""
+    secret_key = (
+        f"{spec.name}.api_key" if any(sub == "api_key" for sub, _ in spec.config_keys) else None
+    )
+    if spec.kind != "cloud":
+        return True, "no credentials needed"
+    if spec.env_api_key or secret_key:
+        return _api_key_status(spec, secret_key)
+    if spec.name == "polly":
+        if found := _detect_aws_credentials():
+            return True, f"AWS credentials detected ({found})"
+        return False, "no AWS credentials detected — run `aws configure` or set AWS_PROFILE"
+    return True, "uses an external credential chain (checked at runtime)"
+
+
+def provider_availability() -> list[dict]:
+    """Detected credentials per registered provider (env, keychain, AWS chain).
+
+    Mirrors runtime resolution: cloud providers read their env var first,
+    then the OS-keychain ``<provider>.api_key``. Detection only — values are
+    never read into the output. Test-kind providers (mock) are omitted.
+    """
+    from .providers.registry import SPECS
+
+    out: list[dict] = []
+    for spec in sorted(SPECS, key=lambda s: s.name):
+        if spec.kind == "test":
+            continue
+        ready, detail = _credential_status(spec)
+        out.append({"name": spec.name, "kind": spec.kind, "ready": ready, "detail": detail})
+    return out
+
+
 def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
     """Entry for `gensay config ...`."""
     parser = create_config_parser()
@@ -767,10 +873,17 @@ def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
             "exists": bool(cfg.path and cfg.path.is_file()),
             "loaded": cfg.loaded,
         }
+        providers = provider_availability()
         if args.as_json:
             print(
                 json.dumps(
-                    {"meta": meta, "defaults": data, "secrets_in_keychain": secrets}, indent=2
+                    {
+                        "meta": meta,
+                        "defaults": data,
+                        "secrets_in_keychain": secrets,
+                        "providers": providers,
+                    },
+                    indent=2,
                 )
             )
         else:
@@ -790,6 +903,11 @@ def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
                         print(f"  {k} = {v!r}")
             for k in secrets:
                 print(f"  {k} = (stored in OS keychain)")
+            print("providers:")
+            width = max(len(p["name"]) for p in providers)
+            for p in providers:
+                status = "ready" if p["ready"] else "needs setup"
+                print(f"  {p['name']:<{width}}  {status:<11}  {p['detail']}")
         return
 
     if args.config_cmd == "init":
@@ -823,13 +941,34 @@ def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
         return
 
     if args.config_cmd == "set":
-        raw = " ".join(args.value)
+        from .user_config import is_secret_key
+
+        if args.value:
+            raw = " ".join(args.value)
+        elif is_secret_key(args.key):
+            # Hidden prompt keeps the secret out of shell history / process args
+            import getpass
+
+            try:
+                raw = getpass.getpass(f"Value for {args.key} (input hidden): ")
+            except (EOFError, KeyboardInterrupt):
+                print("\nAborted; nothing stored.", file=sys.stderr)
+                sys.exit(1)
+            if not raw:
+                print("Error: empty value; nothing stored.", file=sys.stderr)
+                sys.exit(1)
+        else:
+            print(
+                f"Error: a value is required for {args.key!r} "
+                "(hidden prompt is only offered for *.api_key keys)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         try:
             parsed = set_config_value(args.key, raw)
         except (ConfigKeyError, ConfigValueError) as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
-        from .user_config import is_secret_key
 
         if is_secret_key(args.key):
             print(f"set {args.key} (stored in OS keychain)")
@@ -1008,14 +1147,27 @@ def main():  # noqa: C901
         args.list_voices = True
         args.voice = None
 
+    # Piped listing output defaults to JSON (a terminal gets text unless --json)
+    if args.list_voices and not args.as_json and not sys.stdout.isatty():
+        args.as_json = True
+
     needs_text = not (args.list_voices or args.repl)
     text = get_text_input(args) if needs_text else ""
     if needs_text and not text:
         parser.print_usage()
         sys.exit(1)
 
-    # Prefer daemon for speak/save/list_voices when appropriate
-    if not args.repl and not args.cache_ahead and _try_daemon_speak_or_save(args, text):
+    # Prefer daemon for speak/save/list_voices when appropriate.
+    # Direct exceptions: JSON listings (daemon has no models data) and -m/--model
+    # (the daemon's warm provider is fixed at start; it can't take a per-run model).
+    json_listing = args.list_voices and args.as_json
+    if (
+        not args.repl
+        and not args.cache_ahead
+        and not json_listing
+        and not args.model
+        and _try_daemon_speak_or_save(args, text)
+    ):
         return
 
     config = TTSConfig(
@@ -1045,6 +1197,20 @@ def main():  # noqa: C901
                     config.extra[sub] = secret
         elif (val := get_config_value(cfg_key)) is not None:
             config.extra[sub] = val
+
+    # --model beats the stored <provider>.model default for this invocation
+    if args.model:
+        from .providers.registry import SPECS_BY_NAME
+
+        spec = SPECS_BY_NAME.get(args.provider)
+        if spec and not any(sub == "model" for sub, _ in spec.config_keys):
+            print(
+                f"warning: provider {args.provider!r} has no model setting; "
+                f"ignoring -m/--model {args.model!r}",
+                file=sys.stderr,
+            )
+        else:
+            config.extra["model"] = args.model
 
     if args.provider == "chatterbox":
         # TorchCodec needs FFmpeg dylibs at process start; self-heal via one re-exec
@@ -1082,7 +1248,7 @@ def main():  # noqa: C901
         )
 
     if args.list_voices:
-        list_voices(provider)
+        list_voices(provider, as_json=args.as_json)
         return
 
     if args.repl:

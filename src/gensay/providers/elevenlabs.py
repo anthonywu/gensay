@@ -1,9 +1,6 @@
 """ElevenLabs TTS provider implementation."""
 
-import hashlib
 import io
-import os
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -17,8 +14,8 @@ try:
 except ImportError:
     ELEVENLABS_AVAILABLE = False
 
-from ..cache import TTSCache
-from .base import AudioFormat, TTSConfig, TTSProvider
+from .base import AudioFormat, TTSConfig
+from .cloud import CloudTTSProvider, PreparedSynthesis
 
 # eleven_monolingual_v1 / eleven_multilingual_v1 were retired by ElevenLabs.
 # Flash is the right default for a notification tool (lowest latency).
@@ -26,8 +23,22 @@ from .base import AudioFormat, TTSConfig, TTSProvider
 DEFAULT_MODEL = "eleven_flash_v2_5"
 
 
-class ElevenLabsProvider(TTSProvider):
+class ElevenLabsProvider(CloudTTSProvider):
     """TTS provider using ElevenLabs API."""
+
+    cache_namespace = "elevenlabs"
+    display_name = "ElevenLabs"
+
+    # ElevenLabs TTS models (also queryable live via GET /v1/models; hardcoded
+    # so listing works offline — unlisted ids still pass through as-is)
+    MODELS = [
+        {"id": "eleven_v3", "description": "Newest, most expressive; 70+ languages; audio tags"},
+        {"id": "eleven_multilingual_v2", "description": "Highest quality, long-form; 29 languages"},
+        {"id": "eleven_flash_v2_5", "description": "Ultra-low latency, cheapest (default)"},
+        {"id": "eleven_flash_v2", "description": "Ultra-low latency, English only"},
+        {"id": "eleven_turbo_v2_5", "description": "Deprecated — use eleven_flash_v2_5"},
+        {"id": "eleven_turbo_v2", "description": "Deprecated — use eleven_flash_v2"},
+    ]
 
     # Map our formats to ElevenLabs supported formats
     FORMAT_MAP = {
@@ -48,128 +59,59 @@ class ElevenLabsProvider(TTSProvider):
                 "Install with: [uv tool | pip ] install 'gensay[elevenlabs]'"
             )
 
-        # Get API key from environment or config
-        api_key = os.getenv("ELEVENLABS_API_KEY") or (
-            config.extra.get("api_key") if config else None
-        )
-
-        if not api_key:
-            raise ValueError(
-                "ElevenLabs API key not found. Please set ELEVENLABS_API_KEY "
-                "environment variable or pass it in config.extra['api_key']"
-            )
-
+        api_key = self.resolve_api_key("ELEVENLABS_API_KEY", config, display_name="ElevenLabs")
         self.client = ElevenLabs(api_key=api_key)
+        self.model = (config.extra.get("model") if config else None) or DEFAULT_MODEL
         self._voice_cache: list[dict[str, Any]] | None = None
         self._voice_id_map: dict[str, str] | None = None  # name -> voice_id
-        self._cache = TTSCache(enabled=config.cache_enabled if config else True)
 
-    def speak(self, text: str, voice: str | None = None, rate: int | None = None) -> None:
-        """Speak text using ElevenLabs TTS."""
-        voice_name = voice or self.config.voice or "Sarah"
-        voice_id = self._resolve_voice_id(voice_name)
-
-        # Get voice settings
-        voice_settings = self._get_voice_settings(rate)
-        model = (self.config.extra.get("model") if self.config else None) or DEFAULT_MODEL
-        cache_key = self._get_cache_key(text, voice_id, voice_settings, "mp3_44100_128", model)
-
-        try:
-            self.update_progress(0.0, "Checking cache...")
-
-            audio_data = self._cache.get(cache_key)
-
-            if audio_data is None:
-                self.update_progress(0.2, "Generating speech...")
-
-                # Generate audio using text_to_speech.convert (v2 API)
-                audio = self.client.text_to_speech.convert(
-                    voice_id=voice_id,
-                    text=text,
-                    voice_settings=voice_settings,
-                    model_id=model,
-                )
-
-                # Convert to bytes for caching
-                buffer = io.BytesIO()
-                for chunk in audio:
-                    buffer.write(chunk)
-                audio_data = buffer.getvalue()
-
-                self._cache.put(cache_key, audio_data)
-            else:
-                self.update_progress(0.5, "Using cached audio...")
-
-            self.update_progress(0.8, "Playing audio...")
-
-            # Convert bytes back to audio format
-            audio = io.BytesIO(audio_data)
-            play(audio)
-
-            self.update_progress(1.0, "Complete")
-
-        except Exception as e:
-            raise RuntimeError(f"ElevenLabs TTS failed: {e}") from e
-
-    def save_to_file(
+    def _prepare(
         self,
         text: str,
-        output_path: str | Path,
-        voice: str | None = None,
-        rate: int | None = None,
-        format: AudioFormat | None = None,
-    ) -> Path:
-        """Save speech to file using ElevenLabs TTS."""
-        output_path = Path(output_path)
+        voice: str | None,
+        rate: int | None,
+        format: AudioFormat | None,
+    ) -> PreparedSynthesis:
         voice_name = voice or self.config.voice or "Sarah"
         voice_id = self._resolve_voice_id(voice_name)
-        format = format or self.config.format or AudioFormat.from_extension(output_path)
-
-        # Get voice settings
         voice_settings = self._get_voice_settings(rate)
+        model = self.model
+        el_format = (
+            "mp3_44100_128" if format is None else self.FORMAT_MAP.get(format, "mp3_44100_128")
+        )
 
-        # Map format to ElevenLabs format
-        el_format = self.FORMAT_MAP.get(format, "mp3_44100_128")
-        model = (self.config.extra.get("model") if self.config else None) or DEFAULT_MODEL
-        cache_key = self._get_cache_key(text, voice_id, voice_settings, el_format, model)
+        def synthesize() -> bytes:
+            # Generate audio using text_to_speech.convert (v2 API)
+            audio = self.client.text_to_speech.convert(
+                voice_id=voice_id,
+                text=text,
+                voice_settings=voice_settings,
+                model_id=model,
+                output_format=el_format,
+            )
+            buffer = io.BytesIO()
+            for chunk in audio:
+                buffer.write(chunk)
+            return buffer.getvalue()
 
-        try:
-            self.update_progress(0.0, "Checking cache...")
+        # Explicit VoiceSettings fields (not the object's repr, which the SDK
+        # may change between releases and would silently invalidate caches).
+        settings = (
+            f"{voice_settings.stability}|{voice_settings.similarity_boost}"
+            f"|{voice_settings.style}|{voice_settings.use_speaker_boost}|{voice_settings.speed}"
+        )
+        return PreparedSynthesis(
+            cache_parts=(text, voice_id, settings, el_format, model),
+            synthesize=synthesize,
+        )
 
-            audio_data = self._cache.get(cache_key)
+    def _play(self, audio_data: bytes, suffix: str) -> None:  # noqa: ARG002
+        """Play via the ElevenLabs SDK (pyaudio when available, else ffplay)."""
+        play(io.BytesIO(audio_data))
 
-            if audio_data is None:
-                self.update_progress(0.2, "Generating speech...")
-
-                # Generate audio using text_to_speech.convert (v2 API)
-                audio = self.client.text_to_speech.convert(
-                    voice_id=voice_id,
-                    text=text,
-                    voice_settings=voice_settings,
-                    model_id=model,
-                    output_format=el_format,
-                )
-
-                self.update_progress(0.5, "Saving to file...")
-
-                # Convert to bytes for caching and saving
-                buffer = io.BytesIO()
-                for chunk in audio:
-                    buffer.write(chunk)
-                audio_data = buffer.getvalue()
-
-                output_path.write_bytes(audio_data)
-                self._cache.put(cache_key, audio_data)
-            else:
-                self.update_progress(0.5, "Using cached audio...")
-                output_path.write_bytes(audio_data)
-
-            self.update_progress(1.0, "Complete")
-
-            return output_path
-
-        except Exception as e:
-            raise RuntimeError(f"ElevenLabs TTS failed: {e}") from e
+    def list_models(self) -> list[dict[str, Any]]:
+        """List known ElevenLabs TTS models, marking the one this instance uses."""
+        return [{**m, "current": m["id"] == self.model} for m in self.MODELS]
 
     def list_voices(self) -> list[dict[str, Any]]:
         """List available ElevenLabs voices."""
@@ -234,7 +176,9 @@ class ElevenLabsProvider(TTSProvider):
         if voice_id := voice_id_map.get(voice.lower()):
             return voice_id
 
-        raise ValueError(f"Voice '{voice}' not found. Use list_voices() to see available voices.")
+        raise ValueError(
+            f"Voice '{voice}' not found. See available voices with `gensay -p elevenlabs -v '?'`."
+        )
 
     def get_supported_formats(self) -> list[AudioFormat]:
         """Get supported audio formats."""
@@ -266,10 +210,3 @@ class ElevenLabsProvider(TTSProvider):
             use_speaker_boost=True,
             speed=speed,
         )
-
-    def _get_cache_key(
-        self, text: str, voice_id: str, voice_settings: "VoiceSettings", format: str, model: str
-    ) -> str:
-        """Generate cache key for text/voice/settings/format/model combination."""
-        data = f"elevenlabs|{text}|{voice_id}|{voice_settings}|{format}|{model}"
-        return hashlib.sha256(data.encode()).hexdigest()

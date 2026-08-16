@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gensay-tone"
+version = "0.1.0"
+description = "Example gensay provider plugin: renders text as sine-wave tones (stdlib only)"
+requires-python = ">=3.11"
+dependencies = ["gensay"]
+
+# This is the whole plugin contract: one entry point in the
+# "gensay.providers" group resolving to a ProviderSpec instance.
+[project.entry-points."gensay.providers"]
+tone = "gensay_tone:GENSAY_PROVIDER_SPEC"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gensay_tone"]

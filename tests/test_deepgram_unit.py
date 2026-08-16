@@ -43,9 +43,12 @@ def _make_provider(tmp_path, monkeypatch: pytest.MonkeyPatch, config: TTSConfig)
     from gensay.cache import TTSCache
 
     client = FakeClient()
-    plays: list[str] = []
+    plays: list[bytes] = []
     monkeypatch.setattr(dg.httpx, "Client", lambda **kwargs: client)
-    monkeypatch.setattr(dg.subprocess, "run", lambda cmd, check: plays.append(cmd[1]))
+    monkeypatch.setattr(
+        "gensay.providers.cloud.play_audio_bytes",
+        lambda data, suffix=".mp3": plays.append(data),
+    )
 
     p = DeepgramProvider(config)
     p._cache = TTSCache(enabled=True, cache_dir=tmp_path / "cache")
@@ -224,6 +227,16 @@ def test_extra_model_default(tmp_path, monkeypatch: pytest.MonkeyPatch):
     assert ns.client.calls[0]["params"]["model"] == "aura-2-thalia-en"
 
 
+def test_invalid_model_rejected_at_construction(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    """A non-Deepgram model string (e.g. an ElevenLabs id) fails fast, not silently."""
+    with pytest.raises(ValueError, match="Invalid Deepgram model 'eleven_v3'"):
+        _make_provider(
+            tmp_path,
+            monkeypatch,
+            TTSConfig(extra={"api_key": "dg-test-key", "model": "eleven_v3"}),
+        )
+
+
 def test_config_voice_used_when_no_flag(tmp_path, monkeypatch: pytest.MonkeyPatch):
     ns = _make_provider(
         tmp_path, monkeypatch, TTSConfig(voice="Miles", extra={"api_key": "dg-test-key"})
@@ -254,7 +267,17 @@ def test_supported_formats(provider):
     assert AudioFormat.FLAC in formats
 
 
-def test_temp_file_cleaned_up(provider):
-    provider.p.speak("cleanup check")
-    assert provider.plays, "afplay should have been invoked"
-    assert not Path(provider.plays[0]).exists()
+def test_playback_temp_file_cleaned_up(monkeypatch):
+    """Shared playback writes a temp file for afplay and always cleans it up."""
+    from gensay.providers import playback
+
+    played_paths: list[Path] = []
+
+    def fake_run(cmd, check):
+        played_paths.append(Path(cmd[1]))
+
+    monkeypatch.setattr(playback.subprocess, "run", fake_run)
+    monkeypatch.setattr(playback.sys, "platform", "darwin")
+    playback.play_audio_bytes(FAKE_MP3, ".mp3")
+    assert played_paths, "afplay should have been invoked"
+    assert not played_paths[0].exists()

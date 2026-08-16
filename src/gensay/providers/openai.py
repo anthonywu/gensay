@@ -1,10 +1,5 @@
 """OpenAI TTS provider implementation."""
 
-import hashlib
-import os
-import subprocess
-import tempfile
-from pathlib import Path
 from typing import Any
 
 try:
@@ -14,12 +9,15 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-from ..cache import TTSCache
-from .base import AudioFormat, TTSConfig, TTSProvider
+from .base import AudioFormat, TTSConfig
+from .cloud import CloudTTSProvider, PreparedSynthesis
 
 
-class OpenAIProvider(TTSProvider):
+class OpenAIProvider(CloudTTSProvider):
     """TTS provider using OpenAI's TTS API."""
+
+    cache_namespace = "openai"
+    display_name = "OpenAI"
 
     # OpenAI TTS voices
     VOICES = [
@@ -32,6 +30,18 @@ class OpenAIProvider(TTSProvider):
         {"id": "nova", "name": "Nova", "description": "Friendly, upbeat"},
         {"id": "sage", "name": "Sage", "description": "Wise, calm"},
         {"id": "shimmer", "name": "Shimmer", "description": "Warm, engaging"},
+    ]
+
+    # OpenAI TTS models (as offered in the platform UI; passed through as-is,
+    # so newer/dated snapshots not listed here still work via openai.model)
+    MODELS = [
+        {"id": "gpt-4o-mini-tts", "description": "Newest; steerable with instructions"},
+        {"id": "gpt-4o-mini-tts-2025-03-20", "description": "Dated snapshot"},
+        {"id": "gpt-4o-mini-tts-2025-12-15", "description": "Dated snapshot"},
+        {"id": "tts-1", "description": "Fast, low latency (default)"},
+        {"id": "tts-1-1106", "description": "Dated snapshot"},
+        {"id": "tts-1-hd", "description": "Higher quality"},
+        {"id": "tts-1-hd-1106", "description": "Dated snapshot"},
     ]
 
     # Map our formats to OpenAI supported formats
@@ -52,119 +62,36 @@ class OpenAIProvider(TTSProvider):
                 "OpenAI library not found. Please install it with: pip install openai"
             )
 
-        # Get API key from environment or config
-        api_key = os.getenv("OPENAI_API_KEY") or (config.extra.get("api_key") if config else None)
-
-        if not api_key:
-            raise ValueError(
-                "OpenAI API key not found. Please set OPENAI_API_KEY "
-                "environment variable or pass it in config.extra['api_key']"
-            )
-
+        api_key = self.resolve_api_key("OPENAI_API_KEY", config, display_name="OpenAI")
         self.client = OpenAI(api_key=api_key)
         # Default model - tts-1 is faster, tts-1-hd is higher quality
         self.model = (config.extra.get("model") if config else None) or "tts-1"
-        self._cache = TTSCache(enabled=config.cache_enabled if config else True)
 
-    def speak(self, text: str, voice: str | None = None, rate: int | None = None) -> None:
-        """Speak text using OpenAI TTS."""
-        voice = voice or self.config.voice or "alloy"
-        speed = self._rate_to_speed(rate)
-        cache_key = self._get_cache_key(text, voice, speed, "mp3")
-
-        try:
-            self.update_progress(0.0, "Checking cache...")
-
-            audio_data = self._cache.get(cache_key)
-
-            if audio_data is None:
-                self.update_progress(0.2, "Generating speech...")
-
-                # Generate audio to a temp file
-                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                    temp_path = Path(f.name)
-
-                with self.client.audio.speech.with_streaming_response.create(
-                    model=self.model,
-                    voice=voice,
-                    input=text,
-                    speed=speed,
-                    response_format="mp3",
-                ) as response:
-                    response.stream_to_file(temp_path)
-
-                audio_data = temp_path.read_bytes()
-                self._cache.put(cache_key, audio_data)
-
-                self.update_progress(0.5, "Playing audio...")
-            else:
-                self.update_progress(0.5, "Using cached audio...")
-
-                # Write to temp file for playback
-                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                    temp_path = Path(f.name)
-                temp_path.write_bytes(audio_data)
-
-            # Play using afplay on macOS
-            subprocess.run(["afplay", str(temp_path)], check=True)
-
-            self.update_progress(1.0, "Complete")
-
-        except Exception as e:
-            raise RuntimeError(f"OpenAI TTS failed: {e}") from e
-        finally:
-            # Clean up temp file
-            if temp_path.exists():
-                temp_path.unlink()
-
-    def save_to_file(
+    def _prepare(
         self,
         text: str,
-        output_path: str | Path,
-        voice: str | None = None,
-        rate: int | None = None,
-        format: AudioFormat | None = None,
-    ) -> Path:
-        """Save speech to file using OpenAI TTS."""
-        output_path = Path(output_path)
+        voice: str | None,
+        rate: int | None,
+        format: AudioFormat | None,
+    ) -> PreparedSynthesis:
         voice = voice or self.config.voice or "alloy"
-        format = format or self.config.format or AudioFormat.from_extension(output_path)
         speed = self._rate_to_speed(rate)
+        openai_format = "mp3" if format is None else self.FORMAT_MAP.get(format, "mp3")
 
-        # Map format to OpenAI format
-        openai_format = self.FORMAT_MAP.get(format, "mp3")
-        cache_key = self._get_cache_key(text, voice, speed, openai_format)
+        def synthesize() -> bytes:
+            with self.client.audio.speech.with_streaming_response.create(
+                model=self.model,
+                voice=voice,
+                input=text,
+                speed=speed,
+                response_format=openai_format,
+            ) as response:
+                return response.read()
 
-        try:
-            self.update_progress(0.0, "Checking cache...")
-
-            audio_data = self._cache.get(cache_key)
-
-            if audio_data is None:
-                self.update_progress(0.2, "Generating speech...")
-
-                with self.client.audio.speech.with_streaming_response.create(
-                    model=self.model,
-                    voice=voice,
-                    input=text,
-                    speed=speed,
-                    response_format=openai_format,
-                ) as response:
-                    response.stream_to_file(output_path)
-
-                self.update_progress(0.5, "Saving to file...")
-                audio_data = output_path.read_bytes()
-                self._cache.put(cache_key, audio_data)
-            else:
-                self.update_progress(0.5, "Using cached audio...")
-                output_path.write_bytes(audio_data)
-
-            self.update_progress(1.0, "Complete")
-
-            return output_path
-
-        except Exception as e:
-            raise RuntimeError(f"OpenAI TTS failed: {e}") from e
+        return PreparedSynthesis(
+            cache_parts=(text, voice, speed, self.model, openai_format),
+            synthesize=synthesize,
+        )
 
     def list_voices(self) -> list[dict[str, Any]]:
         """List available OpenAI voices."""
@@ -178,6 +105,10 @@ class OpenAIProvider(TTSProvider):
             }
             for v in self.VOICES
         ]
+
+    def list_models(self) -> list[dict[str, Any]]:
+        """List known OpenAI TTS models, marking the one this instance uses."""
+        return [{**m, "current": m["id"] == self.model} for m in self.MODELS]
 
     def get_supported_formats(self) -> list[AudioFormat]:
         """Get supported audio formats.
@@ -211,8 +142,3 @@ class OpenAIProvider(TTSProvider):
         speed = rate / 150.0
         # Clamp to OpenAI's supported range
         return max(0.25, min(4.0, speed))
-
-    def _get_cache_key(self, text: str, voice: str, speed: float, format: str) -> str:
-        """Generate cache key for text/voice/speed/format combination."""
-        data = f"openai|{text}|{voice}|{speed}|{self.model}|{format}"
-        return hashlib.sha256(data.encode()).hexdigest()

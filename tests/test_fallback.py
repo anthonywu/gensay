@@ -197,3 +197,17 @@ def test_main_wraps_cloud_provider_with_macos_fallback(
     assert ("macos", "hello offline", None) in calls
     assert ("macos_config_voice", None) in calls  # voice-less config for `say`
     assert "falling back to macos" in capsys.readouterr().err
+
+
+def test_wrapper_delegates_model_listing_and_display_metadata():
+    class CloudishStub(StubProvider):
+        display_name = "Acme"
+        cache_namespace = "acme"
+
+        def list_models(self):
+            return [{"id": "m1", "current": True}]
+
+    proxy = NetworkFallbackProvider(CloudishStub(), lambda: StubProvider())
+    assert proxy.list_models() == [{"id": "m1", "current": True}]
+    assert proxy.display_name == "Acme"
+    assert proxy.cache_namespace == "acme"

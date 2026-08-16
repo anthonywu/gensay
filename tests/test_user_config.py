@@ -290,6 +290,54 @@ def test_config_cli_secret_does_not_echo_value(
     assert capsys.readouterr().out.strip() == "sk-secret"
 
 
+def test_config_cli_secret_prompts_when_value_omitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
+):
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    import getpass
+
+    from gensay.main import config_main
+
+    monkeypatch.setattr(getpass, "getpass", lambda prompt="": "sk-pasted-secret")
+    config_main(["set", "openai.api_key"])
+    out = capsys.readouterr().out
+    assert "sk-pasted-secret" not in out
+    assert "keychain" in out
+
+    config_main(["get", "openai.api_key"])
+    assert capsys.readouterr().out.strip() == "sk-pasted-secret"
+
+
+def test_config_cli_secret_prompt_rejects_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
+):
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    import getpass
+
+    from gensay.main import config_main
+
+    monkeypatch.setattr(getpass, "getpass", lambda prompt="": "")
+    with pytest.raises(SystemExit) as ei:
+        config_main(["set", "openai.api_key"])
+    assert ei.value.code == 1
+    assert "empty value" in capsys.readouterr().err
+
+
+def test_config_cli_non_secret_requires_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+):
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    from gensay.main import config_main
+
+    with pytest.raises(SystemExit) as ei:
+        config_main(["set", "provider"])
+    assert ei.value.code == 1
+    assert "value is required" in capsys.readouterr().err
+
+
 def test_main_injects_keychain_api_key_into_provider(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring
 ):
@@ -321,3 +369,208 @@ def test_main_injects_keychain_api_key_into_provider(
 
     assert captured["config"].extra["api_key"] == "sk-from-keychain"
     assert captured["text"] == "hello"
+
+
+class TestConfigShowProviderAvailability:
+    """`config show` reports detected env keys / keychain items per provider."""
+
+    @pytest.fixture(autouse=True)
+    def _isolated_credentials(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+        for var in (
+            "OPENAI_API_KEY",
+            "ELEVENLABS_API_KEY",
+            "DEEPGRAM_API_KEY",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_PROFILE",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+    def test_ready_via_env_and_keychain(
+        self, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
+    ):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
+        fake_keyring[("gensay", "elevenlabs.api_key")] = "sk-keychain"
+
+        from gensay.main import config_main
+
+        config_main(["show"])
+        out = capsys.readouterr().out
+        assert "providers:" in out
+        assert "sk-env" not in out and "sk-keychain" not in out  # detection only
+
+        lines = {ln.split()[0]: ln for ln in out.splitlines() if ln.startswith("  ")}
+        assert "ready" in lines["openai"] and "env OPENAI_API_KEY" in lines["openai"]
+        assert "ready" in lines["elevenlabs"]
+        assert "keychain elevenlabs.api_key" in lines["elevenlabs"]
+        assert "needs setup" in lines["deepgram"]
+        assert "gensay config set deepgram.api_key" in lines["deepgram"]
+        assert "mock" not in lines  # test-kind providers are omitted
+        assert "ready" in lines["macos"] and "no credentials needed" in lines["macos"]
+
+    def test_env_plus_keychain_shows_both_sources(
+        self, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
+    ):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
+        fake_keyring[("gensay", "openai.api_key")] = "sk-keychain"
+
+        from gensay.main import config_main
+
+        config_main(["show"])
+        out = capsys.readouterr().out
+        (openai_line,) = [ln for ln in out.splitlines() if ln.split()[:1] == ["openai"]]
+        assert "env OPENAI_API_KEY + keychain openai.api_key" in openai_line
+
+    def test_polly_detects_aws_env(self, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys):
+        monkeypatch.setenv("AWS_PROFILE", "work")
+
+        from gensay.main import config_main
+
+        config_main(["show"])
+        out = capsys.readouterr().out
+        (polly_line,) = [ln for ln in out.splitlines() if ln.strip().startswith("polly")]
+        assert "ready" in polly_line and "AWS_PROFILE=work" in polly_line
+
+    def test_json_includes_providers(self, fake_keyring, capsys):
+        import json as json_mod
+
+        from gensay.main import config_main
+
+        config_main(["show", "--json"])
+        payload = json_mod.loads(capsys.readouterr().out)
+        providers = {p["name"]: p for p in payload["providers"]}
+        assert "mock" not in providers  # test-kind providers are omitted
+        assert providers["macos"]["ready"] is True
+        assert providers["openai"]["ready"] is False
+        assert {"name", "kind", "ready", "detail"} <= set(providers["openai"])
+
+
+def test_model_flag_overrides_stored_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring
+):
+    """--model beats `gensay config set <provider>.model` for one invocation."""
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    import sys
+
+    from gensay import main as main_mod
+    from gensay.user_config import set_config_value
+
+    set_config_value("openai.model", "tts-1")
+
+    captured: dict = {}
+
+    class StubProvider:
+        def __init__(self, config):
+            self.config = config
+            captured["config"] = config
+
+        def speak(self, text, voice=None, rate=None):
+            captured["text"] = text
+
+    stub_providers = dict(main_mod.get_providers())
+    stub_providers["openai"] = StubProvider
+    monkeypatch.setattr(main_mod, "get_providers", lambda: stub_providers)
+    monkeypatch.setattr(sys, "argv", ["gensay", "-p", "openai", "--model", "tts-1-hd", "hello"])
+
+    main_mod.main()
+
+    assert captured["config"].extra["model"] == "tts-1-hd"
+
+    # Without the flag, the stored config value applies
+    monkeypatch.setattr(sys, "argv", ["gensay", "-p", "openai", "hello"])
+    main_mod.main()
+    assert captured["config"].extra["model"] == "tts-1"
+
+
+def test_model_flag_bypasses_daemon(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring
+):
+    """-m/--model routes direct: the daemon's warm provider can't take a per-run model."""
+    import sys
+
+    from gensay import main as main_mod
+
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    def daemon_must_not_run(args, text):
+        raise AssertionError("daemon path must be skipped when -m/--model is set")
+
+    monkeypatch.setattr(main_mod, "_try_daemon_speak_or_save", daemon_must_not_run)
+
+    captured: dict = {}
+
+    class StubProvider:
+        def __init__(self, config):
+            self.config = config
+            captured["config"] = config
+
+        def speak(self, text, voice=None, rate=None):
+            captured["text"] = text
+
+    stub_providers = dict(main_mod.get_providers())
+    stub_providers["openai"] = StubProvider
+    monkeypatch.setattr(main_mod, "get_providers", lambda: stub_providers)
+    monkeypatch.setattr(sys, "argv", ["gensay", "-p", "openai", "-m", "tts-1-hd", "hello"])
+
+    main_mod.main()
+
+    assert captured["config"].extra["model"] == "tts-1-hd"
+    assert captured["text"] == "hello"
+
+
+def test_piped_voice_listing_defaults_to_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
+):
+    """`gensay -v '?' | ...` emits JSON; a TTY gets text unless --json."""
+    import json as json_mod
+    import sys
+
+    from gensay import main as main_mod
+
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+    monkeypatch.setattr(sys, "argv", ["gensay", "-p", "mock", "-v", "?"])
+
+    # capsys stdout is not a TTY → JSON
+    main_mod.main()
+    payload = json_mod.loads(capsys.readouterr().out)
+    assert payload["provider"] == "Mock"
+    assert payload["voices"]
+
+    # Simulated TTY → human-readable text
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    main_mod.main()
+    out = capsys.readouterr().out
+    assert "Voices for provider: Mock" in out
+
+
+def test_model_flag_warns_and_ignored_for_modelless_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
+):
+    """-m/--model on a provider without a model setting warns and is dropped."""
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    import sys
+
+    from gensay import main as main_mod
+
+    captured: dict = {}
+
+    class StubProvider:
+        def __init__(self, config):
+            captured["config"] = config
+
+        def speak(self, text, voice=None, rate=None):
+            pass
+
+    stub_providers = dict(main_mod.get_providers())
+    stub_providers["macos"] = StubProvider
+    monkeypatch.setattr(main_mod, "get_providers", lambda: stub_providers)
+    monkeypatch.setattr(sys, "argv", ["gensay", "-p", "macos", "-m", "tts-1-hd", "hello"])
+
+    main_mod.main()
+
+    assert "model" not in captured["config"].extra
+    err = capsys.readouterr().err
+    assert "has no model setting" in err
+    assert "tts-1-hd" in err

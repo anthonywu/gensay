@@ -193,6 +193,52 @@ def test_model_override_via_extra(tmp_path, monkeypatch: pytest.MonkeyPatch):
     assert client.text_to_speech.calls[0]["model_id"] == "eleven_v3"
 
 
+def test_list_models_known_ids_and_default_current(provider):
+    models = provider.p.list_models()
+    ids = [m["id"] for m in models]
+    assert "eleven_v3" in ids
+    assert "eleven_multilingual_v2" in ids
+    assert "eleven_flash_v2_5" in ids
+    assert [m["id"] for m in models if m["current"]] == [DEFAULT_MODEL]
+
+
+def test_list_models_configured_model_marked_current(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    from gensay.providers import elevenlabs as el
+
+    monkeypatch.setattr(el, "ElevenLabs", lambda api_key: FakeClient(api_key))
+    p = ElevenLabsProvider(TTSConfig(extra={"api_key": "k", "model": "eleven_v3"}))
+    models = p.list_models()
+    assert [m["id"] for m in models if m["current"]] == ["eleven_v3"]
+
+
+def test_cli_voice_listing_shows_models_section(provider, capsys):
+    from gensay.main import list_voices as cli_list_voices
+
+    cli_list_voices(provider.p)
+    out = capsys.readouterr().out
+    assert "Voices for provider: ElevenLabs" in out
+    assert (
+        "Models (pick with -m <id>, or set with `gensay config set elevenlabs.model <id>`):" in out
+    )
+    assert f"* {DEFAULT_MODEL} " in out  # current-model marker
+    assert "  eleven_v3 " in out
+
+
+def test_cli_voice_listing_json(provider, capsys):
+    import json
+
+    from gensay.main import list_voices as cli_list_voices
+
+    cli_list_voices(provider.p, as_json=True)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["provider"] == "ElevenLabs"
+    assert {v["name"] for v in payload["voices"]} >= {"Matilda - Professional", "River"}
+    model_ids = [m["id"] for m in payload["models"]]
+    assert "eleven_v3" in model_ids
+    assert [m["id"] for m in payload["models"] if m["current"]] == [DEFAULT_MODEL]
+
+
 def test_rate_mapped_and_clamped_to_speed(provider):
     p = provider.p
     assert p._get_voice_settings(None).speed == 1.0

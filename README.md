@@ -29,6 +29,7 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Hero Examples — Every Provider](USAGE.md#hero-examples--every-provider) (in USAGE.md)
 - [Command Line Usage](#command-line-usage)
 - [Python API](#python-api)
 - [Provider Configurations](#provider-configurations)
@@ -73,6 +74,10 @@ uv tool install 'gensay[elevenlabs]'
 # only adds keyring support for `gensay config set deepgram.api_key`
 uv tool install 'gensay[deepgram]'
 
+# OS keychain storage for API keys (`gensay config set <provider>.api_key`)
+# without any provider extra — e.g. for OpenAI, which ships in core
+uv tool install 'gensay[keychain]'
+
 # With extras: Chatterbox provider (local Text-to-Speech model, ~2GB PyTorch dependencies)
 uv tool install 'gensay[chatterbox]' \
   --with git+https://github.com/anthonywu/chatterbox.git@allow-dep-updates
@@ -93,11 +98,11 @@ just setup
 # Requires ffmpeg installed on system
 pip install 'gensay[audio-formats]'
 
-# Install all optional dependencies
+# Install all optional dependencies (large: includes the Chatterbox/PyTorch stack)
 pip install 'gensay[all]'
 ```
 
-**DInstallation Help:**
+**Installation Help:**
 
 - [PyAudio documentation](https://pypi.org/project/PyAudio/) - For PortAudio/PyAudio installation issues
 - [ElevenLabs Python library docs](https://elevenlabs.io/docs/agents-platform/libraries/python) - Official ElevenLabs Python documentation
@@ -170,6 +175,10 @@ gensay -o greeting.m4a "Welcome to gensay"
 gensay -v '?'
 gensay --list-voices
 ```
+
+Want a copy-pasteable example for a specific backend? See the [hero examples for every provider](USAGE.md#hero-examples--every-provider) in USAGE.md — setup + canonical commands for macOS, Chatterbox, ElevenLabs, Deepgram, OpenAI, Amazon Polly, and Mock.
+
+Third-party packages can add providers via the `gensay.providers` entry-point group — see [Provider plugins](USAGE.md#provider-plugins-third-party) in USAGE.md.
 
 ## Command Line Usage
 
@@ -340,10 +349,12 @@ After that, `gensay "Build finished"` uses chatterbox (and auto-starts the warm 
 `<provider>.api_key` keys are secrets: `config set` stores them in the **OS keychain** (via `keyring`), never in the plaintext TOML file.
 
 ```bash
-gensay config set elevenlabs.api_key '<your-key>'   # → Keychain/Secret Service
+gensay config set elevenlabs.api_key   # prompts with hidden input (safe paste) → Keychain/Secret Service
 gensay config show    # prints "elevenlabs.api_key = (stored in OS keychain)"
 gensay config unset elevenlabs.api_key              # removes from keychain
 ```
+
+Omit the value to get a hidden password prompt — the secret never lands in your shell history or process list. Passing the value inline (`gensay config set elevenlabs.api_key '<your-key>'`) still works, e.g. for scripting via stdin: `printf '%s' "$KEY" | gensay config set elevenlabs.api_key`.
 
 Runtime precedence: provider env var (`ELEVENLABS_API_KEY`, also via `.env`) > OS keychain.
 
@@ -467,9 +478,11 @@ gensay --provider elevenlabs -o speech.mp3 "High quality AI speech"
 ### OpenAI TTS
 
 1. Get an API key from [OpenAI Platform](https://platform.openai.com/api-keys)
-2. Set the environment variable:
+2. Set the environment variable (or store it once in the OS keychain):
    ```bash
    export OPENAI_API_KEY="sk-..."
+   # or (prompts with hidden input, keeps the key out of shell history):
+   gensay config set openai.api_key   # → Keychain/Secret Service
    ```
 
 ```bash
@@ -483,10 +496,11 @@ gensay --provider openai -v nova "Hello from OpenAI"
 gensay --provider openai -o speech.mp3 "OpenAI TTS output"
 ```
 
-OpenAI offers two models via `config.extra['model']`:
+OpenAI offers several models — pick one per run with `-m` or persist with `gensay config set openai.model <id>` (see `gensay -p openai -v '?'` for the full list):
 
 - `tts-1` (default): Faster, lower latency
 - `tts-1-hd`: Higher quality audio
+- `gpt-4o-mini-tts`: Newest; supports steerable delivery/instructions
 
 ### Amazon Polly
 
@@ -511,9 +525,9 @@ This easy lets you [sign in through the AWS Command Line Interface](https://docs
 ```bash
 export AWS_DEFAULT_REGION=us-west-2
 # on your desktop with a browser
-aws login --region
+aws login --region us-west-2
 # in an env without a browser
-aws login --region --remote
+aws login --region us-west-2 --remote
 ```
 
 ```bash
@@ -573,7 +587,7 @@ gensay --provider deepgram -o speech.mp3 "Deepgram Flux TTS output"
 Provider-specific config keys:
 
 ```bash
-gensay config set deepgram.api_key '<your-key>'    # → Keychain/Secret Service
+gensay config set deepgram.api_key                 # hidden prompt → Keychain/Secret Service
 gensay config set deepgram.model aura-2-thalia-en  # override the Flux default
 ```
 

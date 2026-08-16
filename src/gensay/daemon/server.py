@@ -401,20 +401,19 @@ class DaemonServer:
 
 
 def build_provider(provider_name: str, config: TTSConfig | None = None) -> TTSProvider:
-    """Construct a provider by name (lazy imports)."""
-    # Local imports avoid loading heavy deps until needed; keep out of main to
-    # prevent circular imports (main → daemon → main).
+    """Construct a provider by name (lazy imports via the registry)."""
+    # Registry metadata is cheap; the heavy class is imported only on load().
+    from ..providers.registry import SPECS_BY_NAME, names_where
+
     name = provider_name.lower()
-    if name not in ("chatterbox", "mock"):
+    spec = SPECS_BY_NAME.get(name)
+    if spec is None or not spec.daemon_hostable:
+        hostable = ", ".join(sorted(names_where(lambda s: s.daemon_hostable)))
         raise ValueError(
             f"daemon only hosts providers with expensive local state "
-            f"(chatterbox, mock); {provider_name!r} gains nothing from being kept resident"
+            f"({hostable}); {provider_name!r} gains nothing from being kept resident"
         )
-    if name == "chatterbox":
-        from ..providers.chatterbox import ChatterboxProvider as cls
-    else:
-        from ..providers.mock import MockProvider as cls
-    return cls(config or TTSConfig())
+    return spec.load()(config or TTSConfig())
 
 
 def run_server(

@@ -162,3 +162,34 @@ class TestOpenAIProviderMocked:
         config_hd = TTSConfig(extra={"model": "tts-1-hd"})
         provider_hd = OpenAIProvider(config_hd)
         assert provider_hd.model == "tts-1-hd"
+
+
+class TestOpenAIModelListing:
+    """Model listing is static metadata — no network involved."""
+
+    def _provider(self, **extra) -> OpenAIProvider:
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"}):
+            return OpenAIProvider(TTSConfig(extra=extra))
+
+    def test_known_models_listed_with_default_current(self):
+        models = self._provider().list_models()
+        ids = [m["id"] for m in models]
+        assert "gpt-4o-mini-tts" in ids
+        assert "tts-1-hd" in ids
+        assert [m["id"] for m in models if m["current"]] == ["tts-1"]
+
+    def test_configured_model_marked_current(self):
+        models = self._provider(model="gpt-4o-mini-tts").list_models()
+        assert [m["id"] for m in models if m["current"]] == ["gpt-4o-mini-tts"]
+
+    def test_cli_voice_listing_shows_models_section(self, capsys):
+        from gensay.main import list_voices as cli_list_voices
+
+        cli_list_voices(self._provider())
+        out = capsys.readouterr().out
+        assert "Voices for provider: OpenAI" in out
+        assert (
+            "Models (pick with -m <id>, or set with `gensay config set openai.model <id>`):" in out
+        )
+        assert "* tts-1 " in out  # current-model marker
+        assert "  gpt-4o-mini-tts " in out
