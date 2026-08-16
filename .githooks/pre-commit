@@ -1,0 +1,19 @@
+#!/bin/sh
+# Require a version bump in pyproject.toml whenever files under src/ change.
+
+set -e
+
+# Any staged changes under src/?
+if git diff --cached --name-only --diff-filter=ACMRD | grep -q '^src/'; then
+    head_version=$(git show HEAD:pyproject.toml 2>/dev/null | grep -m1 '^version = ' || true)
+    staged_version=$(git show :pyproject.toml 2>/dev/null | grep -m1 '^version = ' || true)
+
+    if [ -n "$head_version" ] && [ "$head_version" = "$staged_version" ]; then
+        echo "ERROR: files under src/ are staged but pyproject.toml version was not bumped." >&2
+        echo "  current: $head_version" >&2
+        echo "Bump the version in pyproject.toml and 'git add pyproject.toml', or use --no-verify to bypass." >&2
+        exit 1
+    fi
+fi
+
+exit 0
