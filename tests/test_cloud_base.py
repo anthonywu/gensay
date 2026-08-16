@@ -63,7 +63,7 @@ class TestSpeakPipeline:
     def test_speak_synthesizes_and_plays(self, provider, monkeypatch):
         played: list[tuple[bytes, str]] = []
         monkeypatch.setattr(
-            "gensay.providers.cloud.play_audio_bytes",
+            "gensay.providers.playback.play_audio_bytes",
             lambda data, suffix: played.append((data, suffix)),
         )
         provider.speak("hello")
@@ -73,7 +73,7 @@ class TestSpeakPipeline:
         assert played == [(FAKE_AUDIO, ".mp3")]
 
     def test_speak_uses_cache_on_second_call(self, provider, monkeypatch):
-        monkeypatch.setattr("gensay.providers.cloud.play_audio_bytes", lambda *a: None)
+        monkeypatch.setattr("gensay.providers.playback.play_audio_bytes", lambda *a: None)
         provider.speak("hello")
         provider.speak("hello")
         assert len(provider.synth_calls) == 1
@@ -88,6 +88,91 @@ class TestSpeakPipeline:
     def test_speak_bad_voice_raises_unwrapped_valueerror(self, provider):
         with pytest.raises(ValueError, match="Voice 'bogus' not found"):
             provider.speak("hello", voice="bogus")
+
+
+class StreamingFakeCloudProvider(FakeCloudProvider):
+    """Fake provider that also offers chunked synthesis."""
+
+    CHUNKS = (b"\xff\xfb", b"chunk-one", b"chunk-two")
+
+    def _prepare(self, text, voice, rate, format):
+        prepared = super()._prepare(text, voice, rate, format)
+
+        def synthesize_stream():
+            if self.fail_synthesis:
+                raise self.fail_synthesis
+            self.synth_calls.append({"text": text, "streamed": True})
+            yield from self.CHUNKS
+
+        return PreparedSynthesis(
+            cache_parts=prepared.cache_parts,
+            synthesize=prepared.synthesize,
+            synthesize_stream=synthesize_stream,
+        )
+
+
+@pytest.fixture
+def stream_provider(tmp_path, monkeypatch):
+    """Streaming-capable provider with a fake stdin player installed."""
+    streams: list[bytes] = []
+
+    def fake_stream_audio_bytes(chunks, suffix=".mp3"):
+        data = b"".join(chunks)
+        streams.append(data)
+        return data
+
+    monkeypatch.setattr(playback, "find_stream_player", lambda: ["/fake/ffplay"])
+    monkeypatch.setattr(playback, "stream_audio_bytes", fake_stream_audio_bytes)
+    plays: list[bytes] = []
+    monkeypatch.setattr(
+        playback, "play_audio_bytes", lambda data, suffix=".mp3": plays.append(data)
+    )
+    p = StreamingFakeCloudProvider(TTSConfig(cache_enabled=True))
+    p._cache = TTSCache(enabled=True, cache_dir=tmp_path / "cache")
+    p.streams = streams  # type: ignore[attr-defined]
+    p.plays = plays  # type: ignore[attr-defined]
+    return p
+
+
+class TestStreamingSpeak:
+    FULL_AUDIO = b"".join(StreamingFakeCloudProvider.CHUNKS)
+
+    def test_cache_miss_streams_and_caches(self, stream_provider):
+        stream_provider.speak("hello")
+        assert stream_provider.streams == [self.FULL_AUDIO]
+        assert stream_provider.plays == []
+        # Second call is a cache hit: plays buffered bytes, no new stream
+        stream_provider.speak("hello")
+        assert stream_provider.streams == [self.FULL_AUDIO]
+        assert stream_provider.plays == [self.FULL_AUDIO]
+
+    def test_stream_disabled_uses_buffered_path(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(playback, "find_stream_player", lambda: ["/fake/ffplay"])
+        plays: list[bytes] = []
+        monkeypatch.setattr(playback, "play_audio_bytes", lambda data, suffix: plays.append(data))
+        p = StreamingFakeCloudProvider(TTSConfig(cache_enabled=True, stream_enabled=False))
+        p._cache = TTSCache(enabled=True, cache_dir=tmp_path / "cache")
+        p.speak("hello")
+        assert plays == [FAKE_AUDIO]  # buffered synthesize(), not the stream
+
+    def test_no_player_falls_back_to_buffered(self, stream_provider, monkeypatch):
+        monkeypatch.setattr(playback, "find_stream_player", lambda: None)
+        stream_provider.speak("hello")
+        assert stream_provider.streams == []
+        assert stream_provider.plays == [FAKE_AUDIO]
+
+    def test_stream_failure_wraps_and_does_not_cache(self, stream_provider):
+        stream_provider.fail_synthesis = ConnectionError("dns down")
+        with pytest.raises(RuntimeError, match="FakeCloud TTS failed: dns down"):
+            stream_provider.speak("hello")
+        stream_provider.fail_synthesis = None
+        stream_provider.speak("hello")  # miss again: nothing was cached
+        assert stream_provider.streams == [self.FULL_AUDIO]
+
+    def test_save_to_file_stays_buffered(self, stream_provider, tmp_path):
+        out = stream_provider.save_to_file("hello", tmp_path / "out.mp3")
+        assert out.read_bytes() == FAKE_AUDIO
+        assert stream_provider.streams == []
 
 
 class TestSaveToFile:
@@ -120,7 +205,7 @@ class TestCacheKey:
         assert key == expected
 
     def test_speak_and_save_share_cache_for_same_parts(self, provider, tmp_path, monkeypatch):
-        monkeypatch.setattr("gensay.providers.cloud.play_audio_bytes", lambda *a: None)
+        monkeypatch.setattr("gensay.providers.playback.play_audio_bytes", lambda *a: None)
         provider.speak("hello")
         provider.save_to_file("hello", tmp_path / "out.mp3", format=AudioFormat.MP3)
         assert len(provider.synth_calls) == 1
@@ -135,7 +220,7 @@ class TestProgress:
             )
         )
         p._cache = TTSCache(enabled=True, cache_dir=tmp_path / "cache")
-        monkeypatch.setattr("gensay.providers.cloud.play_audio_bytes", lambda *a: None)
+        monkeypatch.setattr("gensay.providers.playback.play_audio_bytes", lambda *a: None)
 
         p.speak("hello")
         assert [pct for pct, _ in events] == [0.0, 0.2, 0.8, 1.0]

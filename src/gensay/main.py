@@ -183,6 +183,13 @@ def create_parser(user_cfg=None) -> argparse.ArgumentParser:
         help="Disable progress bars",
     )
     parser.add_argument(
+        "--no-stream",
+        action="store_true",
+        default=bool(d.get("no_stream", False)),
+        help="Buffer full audio before playing instead of streaming playback "
+        "(cloud providers; streaming needs ffplay or mpv installed)",
+    )
+    parser.add_argument(
         "--chunk-size",
         type=int,
         default=int(d.get("chunk_size", 500)),
@@ -1175,6 +1182,7 @@ def main():  # noqa: C901
         rate=args.rate,
         format=AudioFormat(args.format) if args.format else AudioFormat.M4A,
         cache_enabled=not args.no_cache,
+        stream_enabled=not args.no_stream,
         progress_callback=progress_callback if args.progress else None,
         extra={
             "show_progress": not args.no_progress,

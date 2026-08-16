@@ -67,6 +67,8 @@ def provider(tmp_path, monkeypatch: pytest.MonkeyPatch):
     client = FakeClient()
     monkeypatch.setattr(el, "ElevenLabs", lambda api_key: client)
     monkeypatch.setattr(el, "play", lambda audio: None)
+    # Deterministic buffered path: never discover a real ffplay/mpv
+    monkeypatch.setattr("gensay.providers.playback.find_stream_player", lambda: None)
 
     cfg = TTSConfig(cache_enabled=True, extra={"api_key": "sk-test"})
     p = ElevenLabsProvider(cfg)
@@ -252,3 +254,24 @@ def test_voice_settings_speed_rounding(provider):
     assert settings.speed == pytest.approx(1.2)
     assert settings.stability == 0.5
     assert settings.similarity_boost == 0.75
+
+
+def test_prepared_stream_yields_sdk_chunks(provider):
+    prepared = provider.p._prepare("hello", "River", None, None)
+    assert prepared.synthesize_stream is not None
+    assert b"".join(prepared.synthesize_stream()) == FAKE_AUDIO
+    assert provider.client.text_to_speech.calls[0]["model_id"] == DEFAULT_MODEL
+
+
+def test_speak_streams_when_player_available(provider, monkeypatch):
+    streamed: list[bytes] = []
+
+    def fake_stream_audio_bytes(chunks, suffix=".mp3"):
+        data = b"".join(chunks)
+        streamed.append(data)
+        return data
+
+    monkeypatch.setattr("gensay.providers.playback.find_stream_player", lambda: ["/fake/ffplay"])
+    monkeypatch.setattr("gensay.providers.playback.stream_audio_bytes", fake_stream_audio_bytes)
+    provider.p.speak("hello", voice="River")
+    assert streamed == [FAKE_AUDIO]

@@ -21,7 +21,10 @@ A plugin is a normal Python package that:
    - Cloud/network backends: subclass :class:`CloudTTSProvider` and implement
      ``_prepare`` (returning a :class:`PreparedSynthesis`), ``list_voices``,
      and ``get_supported_formats``. Caching, playback, progress reporting,
-     and error wrapping are inherited.
+     and error wrapping are inherited. Optionally set
+     ``PreparedSynthesis.synthesize_stream`` (a zero-arg closure yielding
+     audio chunks) to get streaming playback — audio starts on the first
+     chunk when a stdin-capable player (ffplay/mpv) is installed.
    - Anything else (local models, system engines): subclass
      :class:`TTSProvider` and implement its abstract methods directly.
 

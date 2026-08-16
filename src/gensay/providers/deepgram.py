@@ -18,6 +18,7 @@ Default model: config.extra['model'] (e.g. `gensay config set deepgram.model`),
 else flux-haley-en.
 """
 
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
@@ -296,9 +297,13 @@ class DeepgramProvider(CloudTTSProvider):
         def synthesize() -> bytes:
             return self._synthesize(text, model, encoding, container, speed)
 
+        def synthesize_stream() -> Iterator[bytes]:
+            yield from self._synthesize_stream(text, model, encoding, container, speed)
+
         return PreparedSynthesis(
             cache_parts=(text, model, speed, encoding, container),
             synthesize=synthesize,
+            synthesize_stream=synthesize_stream,
         )
 
     def list_voices(self) -> list[dict[str, Any]]:
@@ -343,6 +348,19 @@ class DeepgramProvider(CloudTTSProvider):
             return round(snapped, 2)
         return round(max(0.5, min(2.0, speed)), 2)
 
+    @staticmethod
+    def _request_params(
+        model: str, encoding: str, container: str | None, speed: float | None
+    ) -> tuple[str, dict[str, Any]]:
+        """(path, query params) for one speak request."""
+        path = V2_SPEAK_PATH if model.startswith("flux-") else V1_SPEAK_PATH
+        params: dict[str, Any] = {"model": model, "encoding": encoding}
+        if container:
+            params["container"] = container
+        if speed is not None:
+            params["speed"] = speed
+        return path, params
+
     def _synthesize(
         self,
         text: str,
@@ -352,14 +370,23 @@ class DeepgramProvider(CloudTTSProvider):
         speed: float | None,
     ) -> bytes:
         """One batch REST call; returns the full audio payload."""
-        path = V2_SPEAK_PATH if model.startswith("flux-") else V1_SPEAK_PATH
-
-        params: dict[str, Any] = {"model": model, "encoding": encoding}
-        if container:
-            params["container"] = container
-        if speed is not None:
-            params["speed"] = speed
-
+        path, params = self._request_params(model, encoding, container, speed)
         response = self._http.post(path, params=params, json={"text": text})
         response.raise_for_status()
         return response.content
+
+    def _synthesize_stream(
+        self,
+        text: str,
+        model: str,
+        encoding: str,
+        container: str | None,
+        speed: float | None,
+    ) -> Iterator[bytes]:
+        """Same REST call, yielding audio chunks as they arrive."""
+        path, params = self._request_params(model, encoding, container, speed)
+        with self._http.stream("POST", path, params=params, json={"text": text}) as response:
+            if response.status_code >= 400:
+                response.read()  # load body so the error message has details
+            response.raise_for_status()
+            yield from response.iter_bytes()

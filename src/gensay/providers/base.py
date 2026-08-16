@@ -46,6 +46,7 @@ class TTSConfig:
     format: AudioFormat = AudioFormat.M4A
     quality: int | None = None  # 0-127 where 127 is highest
     cache_enabled: bool = True
+    stream_enabled: bool = True  # Play audio while it downloads (cloud providers)
     cache_dir: Path | None = None
     progress_callback: ProgressCallback | None = None
     # Provider-specific config

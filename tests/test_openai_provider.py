@@ -163,6 +163,28 @@ class TestOpenAIProviderMocked:
         provider_hd = OpenAIProvider(config_hd)
         assert provider_hd.model == "tts-1-hd"
 
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("gensay.providers.openai.OpenAI")
+    def test_prepared_stream_yields_response_chunks(self, mock_client_cls):
+        """synthesize_stream drains iter_bytes inside the streaming context."""
+        from unittest.mock import MagicMock
+
+        chunks = [b"\xff\xfb", b"aa", b"bb"]
+        response = MagicMock()
+        response.iter_bytes.return_value = iter(chunks)
+        response.read.return_value = b"".join(chunks)
+        ctx = MagicMock()
+        ctx.__enter__.return_value = response
+        ctx.__exit__.return_value = False
+
+        provider = OpenAIProvider(TTSConfig())
+        provider.client.audio.speech.with_streaming_response.create.return_value = ctx
+
+        prepared = provider._prepare("hello", None, None, None)
+        assert prepared.synthesize_stream is not None
+        assert list(prepared.synthesize_stream()) == chunks
+        assert ctx.__exit__.called
+
 
 class TestOpenAIModelListing:
     """Model listing is static metadata — no network involved."""

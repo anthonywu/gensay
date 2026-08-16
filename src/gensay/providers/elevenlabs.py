@@ -1,6 +1,7 @@
 """ElevenLabs TTS provider implementation."""
 
 import io
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -80,19 +81,18 @@ class ElevenLabsProvider(CloudTTSProvider):
             "mp3_44100_128" if format is None else self.FORMAT_MAP.get(format, "mp3_44100_128")
         )
 
-        def synthesize() -> bytes:
-            # Generate audio using text_to_speech.convert (v2 API)
-            audio = self.client.text_to_speech.convert(
+        def synthesize_stream() -> Iterator[bytes]:
+            # text_to_speech.convert (v2 API) already yields audio chunks
+            yield from self.client.text_to_speech.convert(
                 voice_id=voice_id,
                 text=text,
                 voice_settings=voice_settings,
                 model_id=model,
                 output_format=el_format,
             )
-            buffer = io.BytesIO()
-            for chunk in audio:
-                buffer.write(chunk)
-            return buffer.getvalue()
+
+        def synthesize() -> bytes:
+            return b"".join(synthesize_stream())
 
         # Explicit VoiceSettings fields (not the object's repr, which the SDK
         # may change between releases and would silently invalidate caches).
@@ -103,6 +103,7 @@ class ElevenLabsProvider(CloudTTSProvider):
         return PreparedSynthesis(
             cache_parts=(text, voice_id, settings, el_format, model),
             synthesize=synthesize,
+            synthesize_stream=synthesize_stream,
         )
 
     def _play(self, audio_data: bytes, suffix: str) -> None:  # noqa: ARG002
