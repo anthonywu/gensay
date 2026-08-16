@@ -774,12 +774,14 @@ def provider_availability() -> list[dict]:
 
     Mirrors runtime resolution: cloud providers read their env var first,
     then the OS-keychain ``<provider>.api_key``. Detection only — values are
-    never read into the output.
+    never read into the output. Test-kind providers (mock) are omitted.
     """
     from .providers.registry import SPECS
 
     out: list[dict] = []
     for spec in sorted(SPECS, key=lambda s: s.name):
+        if spec.kind == "test":
+            continue
         ready, detail = _credential_status(spec)
         out.append({"name": spec.name, "kind": spec.kind, "ready": ready, "detail": detail})
     return out

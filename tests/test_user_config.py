@@ -405,7 +405,8 @@ class TestConfigShowProviderAvailability:
         assert "keychain elevenlabs.api_key" in lines["elevenlabs"]
         assert "needs setup" in lines["deepgram"]
         assert "gensay config set deepgram.api_key" in lines["deepgram"]
-        assert "ready" in lines["mock"] and "no credentials needed" in lines["mock"]
+        assert "mock" not in lines  # test-kind providers are omitted
+        assert "ready" in lines["macos"] and "no credentials needed" in lines["macos"]
 
     def test_env_plus_keychain_shows_both_sources(
         self, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
@@ -438,6 +439,7 @@ class TestConfigShowProviderAvailability:
         config_main(["show", "--json"])
         payload = json_mod.loads(capsys.readouterr().out)
         providers = {p["name"]: p for p in payload["providers"]}
-        assert providers["mock"]["ready"] is True
+        assert "mock" not in providers  # test-kind providers are omitted
+        assert providers["macos"]["ready"] is True
         assert providers["openai"]["ready"] is False
         assert {"name", "kind", "ready", "detail"} <= set(providers["openai"])
