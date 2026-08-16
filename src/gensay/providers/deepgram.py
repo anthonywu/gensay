@@ -318,7 +318,7 @@ class DeepgramProvider(CloudTTSProvider):
 
         raise ValueError(
             f"Voice '{voice}' not found. Pass a full model string (e.g. {DEFAULT_MODEL!r}) "
-            f"or a short name from list_voices()."
+            f"or a short name from `gensay -p deepgram -v '?'`."
         )
 
     def _rate_to_speed(self, model: str, rate: int | None) -> float | None:

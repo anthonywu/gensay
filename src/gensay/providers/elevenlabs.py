@@ -176,7 +176,9 @@ class ElevenLabsProvider(CloudTTSProvider):
         if voice_id := voice_id_map.get(voice.lower()):
             return voice_id
 
-        raise ValueError(f"Voice '{voice}' not found. Use list_voices() to see available voices.")
+        raise ValueError(
+            f"Voice '{voice}' not found. See available voices with `gensay -p elevenlabs -v '?'`."
+        )
 
     def get_supported_formats(self) -> list[AudioFormat]:
         """Get supported audio formats."""
