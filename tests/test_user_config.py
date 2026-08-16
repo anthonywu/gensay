@@ -481,3 +481,35 @@ def test_model_flag_overrides_stored_model(
     monkeypatch.setattr(sys, "argv", ["gensay", "-p", "openai", "hello"])
     main_mod.main()
     assert captured["config"].extra["model"] == "tts-1"
+
+
+def test_model_flag_warns_and_ignored_for_modelless_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
+):
+    """-m/--model on a provider without a model setting warns and is dropped."""
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    import sys
+
+    from gensay import main as main_mod
+
+    captured: dict = {}
+
+    class StubProvider:
+        def __init__(self, config):
+            captured["config"] = config
+
+        def speak(self, text, voice=None, rate=None):
+            pass
+
+    stub_providers = dict(main_mod.get_providers())
+    stub_providers["macos"] = StubProvider
+    monkeypatch.setattr(main_mod, "get_providers", lambda: stub_providers)
+    monkeypatch.setattr(sys, "argv", ["gensay", "-p", "macos", "-m", "tts-1-hd", "hello"])
+
+    main_mod.main()
+
+    assert "model" not in captured["config"].extra
+    err = capsys.readouterr().err
+    assert "has no model setting" in err
+    assert "tts-1-hd" in err

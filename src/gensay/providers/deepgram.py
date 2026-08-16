@@ -273,6 +273,11 @@ class DeepgramProvider(CloudTTSProvider):
         self._default_model = (
             (config.extra.get("model") if config else None) or DEFAULT_MODEL
         ).lower()
+        if not self._default_model.startswith(("flux-", "aura-")):
+            raise ValueError(
+                f"Invalid Deepgram model {self._default_model!r}. Deepgram models are "
+                f"full voice strings like {DEFAULT_MODEL!r}; see `gensay -p deepgram -v '?'`."
+            )
 
     def _prepare(
         self,

@@ -1171,7 +1171,17 @@ def main():  # noqa: C901
 
     # --model beats the stored <provider>.model default for this invocation
     if args.model:
-        config.extra["model"] = args.model
+        from .providers.registry import SPECS_BY_NAME
+
+        spec = SPECS_BY_NAME.get(args.provider)
+        if spec and not any(sub == "model" for sub, _ in spec.config_keys):
+            print(
+                f"warning: provider {args.provider!r} has no model setting; "
+                f"ignoring -m/--model {args.model!r}",
+                file=sys.stderr,
+            )
+        else:
+            config.extra["model"] = args.model
 
     if args.provider == "chatterbox":
         # TorchCodec needs FFmpeg dylibs at process start; self-heal via one re-exec
