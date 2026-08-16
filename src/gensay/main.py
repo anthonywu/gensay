@@ -1147,6 +1147,10 @@ def main():  # noqa: C901
         args.list_voices = True
         args.voice = None
 
+    # Piped listing output defaults to JSON (a terminal gets text unless --json)
+    if args.list_voices and not args.as_json and not sys.stdout.isatty():
+        args.as_json = True
+
     needs_text = not (args.list_voices or args.repl)
     text = get_text_input(args) if needs_text else ""
     if needs_text and not text:

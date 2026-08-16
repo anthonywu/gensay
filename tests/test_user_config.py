@@ -483,6 +483,31 @@ def test_model_flag_overrides_stored_model(
     assert captured["config"].extra["model"] == "tts-1"
 
 
+def test_piped_voice_listing_defaults_to_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
+):
+    """`gensay -v '?' | ...` emits JSON; a TTY gets text unless --json."""
+    import json as json_mod
+    import sys
+
+    from gensay import main as main_mod
+
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+    monkeypatch.setattr(sys, "argv", ["gensay", "-p", "mock", "-v", "?"])
+
+    # capsys stdout is not a TTY → JSON
+    main_mod.main()
+    payload = json_mod.loads(capsys.readouterr().out)
+    assert payload["provider"] == "Mock"
+    assert payload["voices"]
+
+    # Simulated TTY → human-readable text
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    main_mod.main()
+    out = capsys.readouterr().out
+    assert "Voices for provider: Mock" in out
+
+
 def test_model_flag_warns_and_ignored_for_modelless_provider(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
 ):
