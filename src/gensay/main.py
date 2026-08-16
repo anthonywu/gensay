@@ -122,6 +122,7 @@ def create_parser(user_cfg=None) -> argparse.ArgumentParser:
         help="Speech rate in words per minute",
     )
     parser.add_argument(
+        "-m",
         "--model",
         help="Provider model id for this invocation, e.g. tts-1-hd or gpt-4o-mini-tts "
         "(overrides `gensay config set <provider>.model`; see --list-voices for choices)",
@@ -429,7 +430,11 @@ def _print_models(provider: TTSProvider) -> None:
     if not models:
         return
     namespace = getattr(provider, "cache_namespace", None)
-    hint = f" (set with `gensay config set {namespace}.model <id>`)" if namespace else ""
+    hint = (
+        f" (pick with -m <id>, or set with `gensay config set {namespace}.model <id>`)"
+        if namespace
+        else " (pick with -m <id>)"
+    )
     print(f"\nModels{hint}:\n")
     for model in models:
         marker = "*" if model.get("current") else " "

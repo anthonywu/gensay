@@ -218,7 +218,9 @@ def test_cli_voice_listing_shows_models_section(provider, capsys):
     cli_list_voices(provider.p)
     out = capsys.readouterr().out
     assert "Voices for provider: ElevenLabs" in out
-    assert "Models (set with `gensay config set elevenlabs.model <id>`):" in out
+    assert (
+        "Models (pick with -m <id>, or set with `gensay config set elevenlabs.model <id>`):" in out
+    )
     assert f"* {DEFAULT_MODEL} " in out  # current-model marker
     assert "  eleven_v3 " in out
 

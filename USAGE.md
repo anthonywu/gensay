@@ -208,7 +208,7 @@ gensay -p openai -o speech.mp3 "Save to file"
 
 # Defaults via config store
 gensay config set openai.model tts-1-hd         # higher quality (default: tts-1)
-gensay -p openai --model gpt-4o-mini-tts "One-off model override"
+gensay -p openai -m gpt-4o-mini-tts "One-off model override"   # or --model
 gensay config set provider openai               # make it the default provider
 ```
 

@@ -188,6 +188,8 @@ class TestOpenAIModelListing:
         cli_list_voices(self._provider())
         out = capsys.readouterr().out
         assert "Voices for provider: OpenAI" in out
-        assert "Models (set with `gensay config set openai.model <id>`):" in out
+        assert (
+            "Models (pick with -m <id>, or set with `gensay config set openai.model <id>`):" in out
+        )
         assert "* tts-1 " in out  # current-model marker
         assert "  gpt-4o-mini-tts " in out
