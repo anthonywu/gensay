@@ -1045,6 +1045,18 @@ def config_main(argv: list[str] | None = None) -> None:  # noqa: C901
     parser.error(f"unknown config command: {args.config_cmd}")
 
 
+def _scope_daemon_voice(args, argv: list[str]) -> None:
+    """Drop a cross-provider config voice default before it's baked into a daemon.
+
+    A config-file voice only applies to the provider it was set with; don't
+    start e.g. a chatterbox/vibevoice daemon with an ElevenLabs voice default.
+    """
+    if getattr(args, "voice", None):
+        from .user_config import load_user_config
+
+        _apply_voice_provider_scope(args, load_user_config(), argv)
+
+
 def daemon_main(argv: list[str] | None = None) -> None:
     """Entry for `gensay daemon ...`."""
     from dotenv import load_dotenv
@@ -1060,6 +1072,8 @@ def daemon_main(argv: list[str] | None = None) -> None:
     from .daemon import lifecycle
     from .daemon.paths import default_paths
     from .daemon.server import run_server
+
+    _scope_daemon_voice(args, argv)
 
     paths = default_paths(
         runtime_dir=getattr(args, "runtime_dir", None),

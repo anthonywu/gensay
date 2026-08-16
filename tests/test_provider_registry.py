@@ -35,6 +35,7 @@ class TestSpecsTable:
             "mock",
             "openai",
             "polly",
+            "vibevoice",
         }
 
     def test_provider_names_sorted(self):

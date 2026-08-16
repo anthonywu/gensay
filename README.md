@@ -11,6 +11,7 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 - **Multiple TTS Providers**: Extensible provider system with support for:
   - [macOS native `say` command](https://developer.apple.com/library/archive/documentation/LanguagesUtilities/Conceptual/MacAutomationScriptingGuide/SpeakText.html) (default on macOS)
   - [Chatterbox](https://github.com/resemble-ai/chatterbox) (local AI TTS, default on other platforms)
+  - [VibeVoice-Realtime](https://huggingface.co/mlx-community/VibeVoice-Realtime-0.5B-fp16) (local AI TTS via MLX, Apple Silicon; install with `gensay[vibevoice]` — [~2.5× faster than realtime](#warm-inference-daemon-recommended-for-chatterbox-and-vibevoice) with the warm daemon)
   - [ElevenLabs](https://elevenlabs.io/docs/api-reference/text-to-speech/convert) (cloud API)
   - [Deepgram](https://developers.deepgram.com/docs/flux-tts/overview) (cloud API; Flux TTS, Aura-2, and Aura models)
   - [Gemini TTS](https://ai.google.dev/gemini-api/docs/speech-generation) (cloud API; prompt-steerable native speech generation, multi-speaker dialogue)
@@ -248,9 +249,19 @@ gensay --no-cache "Text" # Disable cache for this run
 
 ### Interactive Modes and Performance Optimization
 
-#### Warm Inference Daemon (recommended for Chatterbox)
+#### Warm Inference Daemon (recommended for Chatterbox and VibeVoice)
 
-Local AI providers (Chatterbox) pay multi-second model load on every process start. The daemon keeps the provider resident; subsequent `gensay` invocations are cheap RPCs over a user-local Unix socket.
+Local AI providers (Chatterbox, VibeVoice) pay multi-second model load on every process start. The daemon keeps the provider resident; subsequent `gensay` invocations are cheap RPCs over a user-local Unix socket.
+
+VibeVoice in particular is a strong fit for the daemon: once warm, it synthesizes at roughly **0.4× real-time factor — about 2.5× faster than playback speed**. Measured on an Apple M4 Max (macOS, `mlx-community/VibeVoice-Realtime-0.5B-fp16`, uncached text, wall clock including CLI startup + socket RPC):
+
+| Input | Wall time | Audio produced | RTF |
+|---|---|---|---|
+| 1 short sentence | 1.4 s | 3.3 s | 0.42× |
+| ~2 sentences | 4.4 s | 11.6 s | 0.38× |
+| ~4 sentences | 10.1 s | 26.7 s | 0.38× |
+
+The same requests on the cold path take ~10–13 s each, dominated by model load. Slower or busier machines will see higher RTFs; note that the mlx-audio VibeVoice port returns the full clip at once (no chunk streaming), so time-to-first-audio grows with clip length.
 
 Cloud providers (ElevenLabs, OpenAI, Polly) are intentionally not hostable in the daemon — their client init is milliseconds, so there is nothing worth keeping warm.
 

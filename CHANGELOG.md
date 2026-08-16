@@ -2,6 +2,34 @@
 
 Notable user-facing changes to gensay. Follows [Keep a Changelog](https://keepachangelog.com/) loosely; versions follow [SemVer](https://semver.org/).
 
+## 0.11.0 — 2026-08-16
+
+### Added
+
+- **VibeVoice-Realtime provider (local MLX, Apple Silicon).**
+  `gensay -p vibevoice` runs
+  [Microsoft's VibeVoice-Realtime 0.5B](https://huggingface.co/mlx-community/VibeVoice-Realtime-0.5B-fp16)
+  on-device via [mlx-audio](https://github.com/Blaizzy/mlx-audio). Install
+  with `gensay[vibevoice]`; the extra is marker-gated to
+  macOS/arm64, so installing it (or `gensay[all]`) elsewhere is a no-op.
+  26 embedded voices (`-v en-Emma_woman` default; `-v '?'` to list) across
+  English plus 9 experimental languages, and the 4/5/6/8-bit and fp16 model
+  variants selectable via `-m` or `gensay config set vibevoice.model`.
+  First use prompts before downloading the model (~2.2 GB). Warm-daemon
+  eligible: with `gensay daemon start -p vibevoice` it synthesizes at
+  ~0.4× real-time factor (~2.5× faster than playback on an M4 Max); all
+  MLX work is pinned to one thread since MLX ≥0.31.2 streams are
+  thread-local.
+
+### Fixed
+
+- **`gensay daemon start` no longer bakes a cross-provider voice default
+  into the daemon.** A config-file voice (e.g. an ElevenLabs voice set as
+  the top-level default) was passed to `daemon start -p <local-provider>`
+  and stored in the hosted provider's config, crashing later requests with
+  "voice not found". The daemon path now applies the same voice/provider
+  scoping as the speak path.
+
 ## 0.10.0 — 2026-08-16
 
 Includes changes shipped in the 0.8.0/0.9.0 version bumps that never got a
