@@ -2,6 +2,15 @@
 
 Notable user-facing changes to gensay. Follows [Keep a Changelog](https://keepachangelog.com/) loosely; versions follow [SemVer](https://semver.org/).
 
+## Unreleased
+
+### Changed
+
+- **OpenAI SDK range widened to 2.x.** Dependency is now
+  `openai>=1.98.0,<3.0`, so fresh installs resolve the openai-python 2.x
+  line; 1.x remains acceptable. openai v2's only breaking change
+  (Responses API function-call output typing) does not affect gensay.
+
 ## 0.7.0 — 2026-08-15
 
 Provider cleanup release: every cloud provider now shares one pipeline, the
