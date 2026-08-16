@@ -458,8 +458,21 @@ def _print_models(provider: TTSProvider) -> None:
     for model in models:
         marker = "*" if model.get("current") else " "
         desc = model.get("description", "")
+        if caps := model.get("capabilities"):
+            desc = f"{desc} [{', '.join(caps)}]" if desc else f"[{', '.join(caps)}]"
         suffix = f" # {desc}" if desc else ""
         print(f"{marker} {model['id']:<28}{suffix}")
+
+
+def _voice_line(display_name: str, language: str | None, desc: str) -> str:
+    """One row of the voice table; the language column is omitted when unset
+    (e.g. Gemini voices are language-agnostic)."""
+    line = f"{display_name:<20}"
+    if language:
+        line += f" {language:<10}"
+    if desc:
+        line += f" # {desc}"
+    return line.rstrip()
 
 
 def _print_voices_text(provider: TTSProvider, provider_name: str) -> None:
@@ -473,17 +486,13 @@ def _print_voices_text(provider: TTSProvider, provider_name: str) -> None:
 
     for voice in voices:
         display_name = voice.get("name", voice["id"])
-        lang = voice.get("language", "Unknown")
         desc = voice.get("description", "")
 
         extra_info = [voice[k] for k in ("use_case", "accent", "age") if voice.get(k)]
         if extra_info:
             desc = f"{desc} - {', '.join(extra_info)}" if desc else ", ".join(extra_info)
 
-        if desc:
-            print(f"{display_name:<20} {lang:<10} # {desc}")
-        else:
-            print(f"{display_name:<20} {lang:<10}")
+        print(_voice_line(display_name, voice.get("language"), desc))
 
     _print_models(provider)
 
@@ -748,12 +757,8 @@ def _try_daemon_speak_or_save(args, text: str) -> bool:  # noqa: C901
             print(f"\nVoices for provider: {daemon_provider_name or args.provider} (via daemon)\n")
             for voice in voices:
                 display_name = voice.get("name", voice["id"])
-                lang = voice.get("language", "Unknown")
                 desc = voice.get("description", "")
-                if desc:
-                    print(f"{display_name:<20} {lang:<10} # {desc}")
-                else:
-                    print(f"{display_name:<20} {lang:<10}")
+                print(_voice_line(display_name, voice.get("language"), desc))
             return True
 
         if args.output:

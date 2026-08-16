@@ -94,9 +94,12 @@ class TTSProvider(ABC):
     def list_models(self) -> list[dict[str, Any]]:
         """List selectable models, if the provider has a model concept.
 
-        Returns list of dicts with at least 'id'; optional 'description' and
-        'current' (bool, the model this instance would use). Empty by default;
-        shown alongside ``--list-voices`` output when non-empty.
+        Returns list of dicts with at least 'id'; optional 'description',
+        'current' (bool, the model this instance would use), and
+        'capabilities' (list of tags such as 'multi-speaker',
+        'prompt-steerable', 'streaming' — informational, shown in listings).
+        Empty by default; shown alongside ``--list-voices`` output when
+        non-empty.
         """
         return []
 

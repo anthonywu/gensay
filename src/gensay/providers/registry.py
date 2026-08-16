@@ -103,6 +103,14 @@ BUILTIN_SPECS: tuple[ProviderSpec, ...] = (
         install_extra="gensay[elevenlabs]",
     ),
     ProviderSpec(
+        name="gemini",
+        class_name="GeminiProvider",
+        module="gensay.providers.gemini",
+        kind="cloud",
+        env_api_key="GEMINI_API_KEY",
+        config_keys=(("api_key", str), ("model", str), ("prompt", str)),
+    ),
+    ProviderSpec(
         name="macos",
         class_name="MacOSSayProvider",
         module="gensay.providers.macos_say",

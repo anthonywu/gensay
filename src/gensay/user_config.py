@@ -338,7 +338,7 @@ EXAMPLE_CONFIG = """\
 #
 # Precedence: CLI flags > environment (GENSAY_*) > this file > built-ins
 
-# provider = "chatterbox"   # chatterbox | macos | openai | elevenlabs | deepgram | polly | mock
+# provider = "chatterbox"   # chatterbox | macos | openai | elevenlabs | deepgram | gemini | polly | mock
 # voice = "default"
 # rate = 150
 # format = "m4a"            # aiff wav m4a mp3 caf flac aac ogg

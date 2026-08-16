@@ -21,7 +21,7 @@ options:
                         Save audio to file instead of playing
   --format {aiff,wav,m4a,mp3,caf,flac,aac,ogg}
                         Audio format for output file
-  -p, --provider {chatterbox,deepgram,elevenlabs,macos,mock,openai,polly}
+  -p, --provider {chatterbox,deepgram,elevenlabs,gemini,macos,mock,openai,polly}
                         TTS provider to use (default: macos)
   --list-voices         List all available voices for the selected provider
   --json                Machine-readable JSON output (with --list-voices / -v
@@ -132,6 +132,9 @@ export ELEVENLABS_API_KEY   # or once: gensay config set elevenlabs.api_key → 
 # Deepgram
 export DEEPGRAM_API_KEY     # or once: gensay config set deepgram.api_key → OS keychain
 
+# Gemini (create + scope the key at https://aistudio.google.com/api-keys)
+export GEMINI_API_KEY       # or once: gensay config set gemini.api_key → OS keychain
+
 # OpenAI
 export OPENAI_API_KEY       # or once: gensay config set openai.api_key → OS keychain
 
@@ -144,6 +147,23 @@ aws login --region us-west-2 --remote   # headless: prints a URL to visit
 # NOTE: boto3 reads AWS_DEFAULT_REGION (NOT AWS_REGION); also export:
 export AWS_DEFAULT_REGION=us-west-2
 ```
+
+## Gemini notes
+
+- Default model: `gemini-2.5-flash-preview-tts` (Gemini API `generateContent`,
+  batch REST); also `gemini-2.5-pro-preview-tts` and
+  `gemini-3.1-flash-tts-preview` via `-m` or `gensay config set gemini.model`
+- 30 prebuilt voices shared by all models, case-insensitive: `-v Kore`,
+  `-v puck`; input language is auto-detected (70+ languages)
+- Style is prompt-steered, not parameterized:
+  `gensay config set gemini.prompt "Say cheerfully:"` prepends direction to
+  every request; inline audio tags like `[whispers]` work in the message text
+- Rate (`-r` WPM) becomes an inline pace instruction (no numeric speed param)
+- Multi-speaker dialogue (max 2 speakers): `-v 'Joe=Kore,Jane=Puck'` maps
+  transcript speaker names to voices; the message is the transcript
+  (`Joe: ...` / `Jane: ...`) — see the Gemini hero examples below
+- Output is 24 kHz PCM wrapped as WAV; other formats transcode via
+  pydub/ffmpeg
 
 ## Deepgram notes
 
@@ -246,6 +266,87 @@ gensay -p deepgram -o speech.mp3 "Save to file"
 # Defaults via config store
 gensay config set deepgram.model flux-kit-en    # override the flux-haley-en default
 gensay config set provider deepgram             # make it the default provider
+```
+
+### Gemini
+
+Cloud; prompt-steerable Gemini API speech generation, no extra needed.
+
+Get a key at [Google AI Studio → API keys](https://aistudio.google.com/api-keys)
+(sign in, **Create API key**, pick or auto-create a Google Cloud project).
+Keys are free-tier friendly and start with `AIza`. Scope the key:
+
+- New AI Studio keys are **auth keys**, already restricted to the Gemini API
+  (Generative Language API) with automatic leaked-key blocking — prefer these.
+  Older **standard** keys must have restrictions applied (unrestricted ones
+  are rejected, and standard keys stop working entirely in September 2026).
+- If a key shows an **Unrestricted** label in AI Studio: hover it →
+  **Add restrictions** → **Restrict to Gemini API only**.
+- Optional hardening in the
+  [Cloud console Credentials page](https://console.cloud.google.com/apis/credentials):
+  application restrictions (IP ranges), per-minute/per-day quotas, and
+  billing alerts. Use a dedicated key for gensay rather than sharing one
+  across apps.
+
+```bash
+# API key (either; env var wins at runtime; GOOGLE_API_KEY also honored)
+export GEMINI_API_KEY='<your-key>'              # env var (or .env file)
+gensay config set gemini.api_key                # once → prompts (hidden paste) → OS keychain
+gensay config unset gemini.api_key              # remove from keychain
+
+# Speak (--provider and -p are equivalent; -v and --voice are equivalent)
+gensay --provider gemini "Default voice (Kore)"
+gensay -p gemini -v Puck "Hello from Puck"
+gensay -p gemini -v leda "Voice names are case-insensitive"
+gensay -p gemini -v '?'                         # list the 30 prebuilt voices + models
+gensay -p gemini -o speech.mp3 "Save to file (PCM transcoded via ffmpeg)"
+
+# Defaults via config store
+gensay config set gemini.model gemini-2.5-pro-preview-tts   # default: gemini-2.5-flash-preview-tts
+gensay config set provider gemini               # make it the default provider
+```
+
+**Prompt-steering.** Gemini TTS takes direction in natural language instead
+of request parameters: style, emotion, accent, pace, and delivery are all
+controlled by instructions and inline audio tags in the text itself.
+
+```bash
+# Inline instruction: prefix the transcript with direction
+gensay -p gemini "Say in a hushed, dramatic whisper: the tests all passed."
+gensay -p gemini "Speak like an excited sports commentator: the build is green!"
+
+# Inline audio tags steer delivery mid-sentence
+gensay -p gemini "[whispers] deploys on Friday [laughs] just kidding"
+gensay -p gemini "Say with a strong French accent: welcome to the release notes"
+
+# Persistent style: gemini.prompt is prepended to every request
+gensay config set gemini.prompt "Speak warmly and unhurried, like a bedtime story:"
+gensay -p gemini "Once upon a time, the linter found nothing."
+gensay config unset gemini.prompt
+
+# -r/--rate (WPM) is translated to an inline pace instruction
+# (the API has no numeric speed parameter)
+gensay -p gemini -r 220 "Reading the changelog at speed."
+```
+
+**Multi-speaker dialogue.** Map transcript speaker names to voices with
+`-v 'Name=Voice,Name=Voice'` (the API supports at most 2 speakers). Write the
+message as a transcript using those names; a short lead-in describing the
+conversation improves results.
+
+```bash
+gensay -p gemini -v 'Joe=Puck,Jane=Leda' "TTS the following conversation between Joe and Jane:
+Joe: Jane, did you hear? gensay supports multi-speaker synthesis now.
+Jane: No way. So this whole conversation is one API call?
+Joe: Exactly. Two voices, one request."
+
+# Style directions can target each speaker by name
+gensay -p gemini -v 'Host=Charon,Guest=Zephyr' "Make Host sound tired and bored, and Guest sound excited:
+Host: Welcome back to the show.
+Guest: I am THRILLED to be here!"
+
+# Works with files too: put the transcript in dialogue.txt
+gensay -p gemini -v 'Joe=Kore,Jane=Puck' -f dialogue.txt -o podcast.mp3
 ```
 
 ### OpenAI
