@@ -140,6 +140,16 @@ BUILTIN_SPECS: tuple[ProviderSpec, ...] = (
         # not a gensay-managed api_key.
         config_keys=(("engine", str), ("aws_profile", str), ("aws_region", str)),
     ),
+    ProviderSpec(
+        name="vibevoice",
+        class_name="VibeVoiceProvider",
+        module="gensay.providers.vibevoice",
+        kind="local",
+        warm_eligible=True,
+        daemon_hostable=True,
+        config_keys=(("model", str), ("voice", str)),
+        install_extra="gensay[vibevoice]",
+    ),
 )
 
 

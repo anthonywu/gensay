@@ -3,7 +3,7 @@ requires = ["uv_build==0.12.3"]
 build-backend = "uv_build"
 
 [project]
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
     "boto3>=1.40.0,<2.0",
     "botocore[crt]>=1.40.0,<2.0",
@@ -59,6 +59,13 @@ chatterbox = [
     "torchaudio>=2.6,<3.0",
 ]
 deepgram = ["keyring>=25.0,<26"]
+# VibeVoice-Realtime local inference via MLX (Apple Silicon only).
+# Environment markers make the extra a no-op elsewhere: installing
+# gensay[vibevoice] (or [all]) on Linux/Windows/Intel won't pull mlx-audio.
+vibevoice = [
+    "mlx-audio>=0.2.6,<1.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "numpy>=1.26.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
 elevenlabs = ["elevenlabs[pyaudio]>=2.0,<3.0", "keyring>=25.0,<26"]
 # OS keychain storage for `gensay config set <provider>.api_key`
 # (openai/polly have no provider extra of their own; deepgram/elevenlabs already include keyring)
@@ -66,7 +73,7 @@ keychain = ["keyring>=25.0,<26"]
 # Audio format conversion
 audio-formats = ["pydub>=0.25.0", "ffmpeg-python>=0.2.0"]
 # All optional dependencies
-all = ["gensay[audio-formats,chatterbox,deepgram,elevenlabs,keychain]"]
+all = ["gensay[audio-formats,chatterbox,deepgram,elevenlabs,keychain,vibevoice]"]
 
 # Development dependencies (PEP 735)
 [dependency-groups]
