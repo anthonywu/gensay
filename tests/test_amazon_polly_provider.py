@@ -178,6 +178,30 @@ class TestAmazonPollyProviderMocked:
         os.environ, {"AWS_ACCESS_KEY_ID": "test-key", "AWS_SECRET_ACCESS_KEY": "test-secret"}
     )
     @patch("boto3.client")
+    def test_prepared_stream_yields_body_chunks(self, mock_boto_client):
+        """synthesize_stream drains the StreamingBody in chunks and closes it."""
+        from unittest.mock import MagicMock
+
+        chunks = [b"\xff\xfb", b"aa", b"bb"]
+        body = MagicMock()
+        body.iter_chunks.return_value = iter(chunks)
+        client = MagicMock()
+        client.synthesize_speech.return_value = {"AudioStream": body}
+        mock_boto_client.return_value = client
+
+        provider = AmazonPollyProvider(TTSConfig())
+        prepared = provider._prepare("hello", None, None, None)
+        assert prepared.synthesize_stream is not None
+        assert list(prepared.synthesize_stream()) == chunks
+        assert body.close.called
+        kwargs = client.synthesize_speech.call_args.kwargs
+        assert kwargs["VoiceId"] == "Joanna"
+        assert kwargs["OutputFormat"] == "mp3"
+
+    @patch.dict(
+        os.environ, {"AWS_ACCESS_KEY_ID": "test-key", "AWS_SECRET_ACCESS_KEY": "test-secret"}
+    )
+    @patch("boto3.client")
     def test_region_from_config(self, mock_boto_client):
         """Test region selection from config."""
         config = TTSConfig(extra={"aws_region": "eu-west-1"})

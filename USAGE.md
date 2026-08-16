@@ -31,6 +31,9 @@ options:
   --cache-stats         Show cache statistics and exit
   --cache-ahead         Pre-cache audio chunks in background (chatterbox only)
   --no-progress         Disable progress bars
+  --no-stream           Buffer full audio before playing instead of streaming
+                        playback (cloud providers; streaming needs ffplay or
+                        mpv installed)
   --chunk-size CHUNK_SIZE
                         Text chunk size for processing (default: 500)
   --progress            Show progress meter
@@ -55,6 +58,29 @@ gensay daemon run [-p PROVIDER]     Foreground daemon
 gensay daemon status [--json]       Show status
 gensay daemon stop                  Stop daemon
 gensay daemon restart               Restart daemon
+```
+
+## Streaming playback (fast first sound)
+
+Cloud providers (OpenAI, Deepgram, ElevenLabs, Amazon Polly — and plugins
+that opt in) play audio **while it downloads** on a cache miss, so speech
+starts on the first audio chunk instead of after the full response.
+
+Requirements and behavior:
+
+- Needs a stdin-capable player: `ffplay` (ships with ffmpeg) or `mpv`.
+  Without one, gensay falls back to the buffered path (download fully, then
+  play via `afplay`) — same behavior as before, no error.
+- The full audio is still cached after the stream finishes; repeat
+  invocations play from cache instantly. A failed stream caches nothing.
+- `-o`/`--output-file` is unaffected (files are written whole).
+- Opt out per run with `--no-stream`, per user with
+  `gensay config set no_stream true`, or via `GENSAY_NO_STREAM=1`.
+
+```bash
+brew install ffmpeg   # or mpv — enables streaming playback
+gensay -p openai "speech starts as soon as the first chunk arrives"
+gensay -p openai --no-stream "old behavior: download fully, then play"
 ```
 
 ## Config (per-user defaults, XDG/platformdirs)

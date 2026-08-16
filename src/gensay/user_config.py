@@ -43,6 +43,7 @@ MAIN_CLI_KEYS = frozenset(
         "chunk_size",
         "no_cache",
         "no_progress",
+        "no_stream",
         "progress",
         "via_daemon",
         "no_daemon",
@@ -60,6 +61,7 @@ KEY_TYPES: dict[str, type] = {
     "chunk_size": int,
     "no_cache": bool,
     "no_progress": bool,
+    "no_stream": bool,
     "progress": bool,
     "via_daemon": bool,
     "no_daemon": bool,
@@ -153,6 +155,7 @@ class UserConfig:
     chunk_size: int | None = None
     no_cache: bool | None = None
     no_progress: bool | None = None
+    no_stream: bool | None = None
     progress: bool | None = None
     via_daemon: bool | None = None
     no_daemon: bool | None = None
@@ -229,6 +232,7 @@ def _from_dict(data: dict[str, Any], path: Path) -> UserConfig:  # noqa: C901
         elif key in (
             "no_cache",
             "no_progress",
+            "no_stream",
             "progress",
             "via_daemon",
             "no_daemon",
@@ -294,6 +298,8 @@ def apply_env_overrides(cfg: UserConfig) -> UserConfig:  # noqa: C901
 
     if _env_set("GENSAY_NO_CACHE"):
         merged.no_cache = _env_flag("GENSAY_NO_CACHE")
+    if _env_set("GENSAY_NO_STREAM"):
+        merged.no_stream = _env_flag("GENSAY_NO_STREAM")
     if _env_set("GENSAY_VIA_DAEMON"):
         merged.via_daemon = _env_flag("GENSAY_VIA_DAEMON")
     if _env_set("GENSAY_NO_DAEMON"):

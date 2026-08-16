@@ -17,9 +17,19 @@ FAKE_MP3 = b"\xff\xfb" + b"x" * 128
 class FakeResponse:
     def __init__(self, audio: bytes = FAKE_MP3):
         self.content = audio
+        self.status_code = 200
 
     def raise_for_status(self):
         return None
+
+    def read(self):
+        return self.content
+
+    def iter_bytes(self):
+        # Two chunks so streaming consumers exercise accumulation
+        mid = len(self.content) // 2
+        yield self.content[:mid]
+        yield self.content[mid:]
 
 
 class FakeClient:
@@ -28,6 +38,7 @@ class FakeClient:
     def __init__(self, **kwargs):
         self.init_kwargs = kwargs
         self.calls: list[dict] = []
+        self.stream_calls: list[dict] = []
         self.should_raise: Exception | None = None
 
     def post(self, path, params=None, json=None):
@@ -35,6 +46,18 @@ class FakeClient:
         if self.should_raise:
             raise self.should_raise
         return FakeResponse()
+
+    def stream(self, method, path, params=None, json=None):
+        self.stream_calls.append({"method": method, "path": path, "params": params, "json": json})
+        if self.should_raise:
+            raise self.should_raise
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _cm():
+            yield FakeResponse()
+
+        return _cm()
 
 
 def _make_provider(tmp_path, monkeypatch: pytest.MonkeyPatch, config: TTSConfig):
@@ -46,9 +69,11 @@ def _make_provider(tmp_path, monkeypatch: pytest.MonkeyPatch, config: TTSConfig)
     plays: list[bytes] = []
     monkeypatch.setattr(dg.httpx, "Client", lambda **kwargs: client)
     monkeypatch.setattr(
-        "gensay.providers.cloud.play_audio_bytes",
+        "gensay.providers.playback.play_audio_bytes",
         lambda data, suffix=".mp3": plays.append(data),
     )
+    # Deterministic buffered path: never discover a real ffplay/mpv
+    monkeypatch.setattr("gensay.providers.playback.find_stream_player", lambda: None)
 
     p = DeepgramProvider(config)
     p._cache = TTSCache(enabled=True, cache_dir=tmp_path / "cache")
@@ -265,6 +290,36 @@ def test_supported_formats(provider):
     assert AudioFormat.MP3 in formats
     assert AudioFormat.WAV in formats
     assert AudioFormat.FLAC in formats
+
+
+def test_prepared_stream_yields_chunks_matching_buffered(provider):
+    prepared = provider.p._prepare("hello", None, None, None)
+    assert prepared.synthesize_stream is not None
+    chunks = list(prepared.synthesize_stream())
+    assert len(chunks) > 1
+    assert b"".join(chunks) == FAKE_MP3
+    call = provider.client.stream_calls[0]
+    assert call["method"] == "POST"
+    assert call["params"]["model"] == DEFAULT_MODEL
+
+
+def test_speak_streams_when_player_available(tmp_path, monkeypatch):
+    ns = _make_provider(
+        tmp_path, monkeypatch, TTSConfig(cache_enabled=True, extra={"api_key": "dg-test"})
+    )
+    streamed: list[bytes] = []
+
+    def fake_stream_audio_bytes(chunks, suffix=".mp3"):
+        data = b"".join(chunks)
+        streamed.append(data)
+        return data
+
+    monkeypatch.setattr("gensay.providers.playback.find_stream_player", lambda: ["/fake/ffplay"])
+    monkeypatch.setattr("gensay.providers.playback.stream_audio_bytes", fake_stream_audio_bytes)
+    ns.p.speak("hello")
+    assert streamed == [FAKE_MP3]
+    assert ns.plays == []
+    assert ns.client.stream_calls and not ns.client.calls
 
 
 def test_playback_temp_file_cleaned_up(monkeypatch):

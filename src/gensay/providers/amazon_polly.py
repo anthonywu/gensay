@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+from collections.abc import Iterator
 from typing import Any
 
 try:
@@ -146,7 +147,7 @@ class AmazonPollyProvider(CloudTTSProvider):
         ssml_text = self._wrap_with_rate(text, rate)
         engine = self._get_engine_for_voice(voice)
 
-        def synthesize() -> bytes:
+        def _request() -> Any:
             response = self.client.synthesize_speech(
                 Text=ssml_text,
                 TextType="ssml",
@@ -154,11 +155,22 @@ class AmazonPollyProvider(CloudTTSProvider):
                 VoiceId=voice,
                 Engine=engine,
             )
-            return response["AudioStream"].read()
+            return response["AudioStream"]  # botocore StreamingBody
+
+        def synthesize() -> bytes:
+            return _request().read()
+
+        def synthesize_stream() -> Iterator[bytes]:
+            body = _request()
+            try:
+                yield from body.iter_chunks(chunk_size=8192)
+            finally:
+                body.close()
 
         return PreparedSynthesis(
             cache_parts=(ssml_text, voice, engine, polly_format),
             synthesize=synthesize,
+            synthesize_stream=synthesize_stream,
         )
 
     def list_voices(self) -> list[dict[str, Any]]:

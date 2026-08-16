@@ -11,6 +11,21 @@ Notable user-facing changes to gensay. Follows [Keep a Changelog](https://keepac
   line; 1.x remains acceptable. openai v2's only breaking change
   (Responses API function-call output typing) does not affect gensay.
 
+### Added
+
+- **Streaming playback ("fast first sound").** On a cache miss, every cloud
+  provider (OpenAI, Deepgram, ElevenLabs, Amazon Polly) now plays audio
+  while it downloads: speech starts on the first audio chunk instead of
+  after the full response. Needs a stdin-capable player (`ffplay` from
+  ffmpeg, or `mpv`); without one gensay silently uses the previous
+  buffered path. The full audio is still cached after the stream completes
+  (a failed stream caches nothing), and `-o`/`--output-file` is unchanged.
+  Opt out with `--no-stream`, `gensay config set no_stream true`, or
+  `GENSAY_NO_STREAM=1`.
+- **Plugin streaming hook.** `PreparedSynthesis.synthesize_stream`
+  (optional, via `gensay.plugin`) lets third-party cloud providers opt into
+  the same streaming playback with one generator closure.
+
 ## 0.7.0 — 2026-08-15
 
 Provider cleanup release: every cloud provider now shares one pipeline, the

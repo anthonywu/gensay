@@ -1,5 +1,6 @@
 """OpenAI TTS provider implementation."""
 
+from collections.abc import Iterator
 from typing import Any
 
 try:
@@ -78,19 +79,27 @@ class OpenAIProvider(CloudTTSProvider):
         speed = self._rate_to_speed(rate)
         openai_format = "mp3" if format is None else self.FORMAT_MAP.get(format, "mp3")
 
-        def synthesize() -> bytes:
-            with self.client.audio.speech.with_streaming_response.create(
+        def _request():
+            return self.client.audio.speech.with_streaming_response.create(
                 model=self.model,
                 voice=voice,
                 input=text,
                 speed=speed,
                 response_format=openai_format,
-            ) as response:
+            )
+
+        def synthesize() -> bytes:
+            with _request() as response:
                 return response.read()
+
+        def synthesize_stream() -> Iterator[bytes]:
+            with _request() as response:
+                yield from response.iter_bytes()
 
         return PreparedSynthesis(
             cache_parts=(text, voice, speed, self.model, openai_format),
             synthesize=synthesize,
+            synthesize_stream=synthesize_stream,
         )
 
     def list_voices(self) -> list[dict[str, Any]]:

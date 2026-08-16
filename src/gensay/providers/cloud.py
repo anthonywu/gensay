@@ -20,14 +20,14 @@ from __future__ import annotations
 import hashlib
 import os
 from abc import abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from ..cache import TTSCache
+from . import playback
 from .base import AudioFormat, TTSConfig, TTSProvider
-from .playback import play_audio_bytes
 
 
 @dataclass(frozen=True)
@@ -43,6 +43,13 @@ class PreparedSynthesis:
 
     playback_suffix: str = ".mp3"
     """Temp-file suffix when playing this audio locally."""
+
+    synthesize_stream: Callable[[], Iterator[bytes]] | None = None
+    """Optional zero-arg closure yielding audio chunks as the API produces
+    them. When set, ``speak()`` on a cache miss plays audio while it
+    downloads (needs a stdin-capable player, e.g. ffplay/mpv) instead of
+    buffering the full response first. The joined chunks must equal what
+    :attr:`synthesize` returns, since either may populate the cache."""
 
 
 class CloudTTSProvider(TTSProvider):
@@ -79,17 +86,48 @@ class CloudTTSProvider(TTSProvider):
     # -- shared pipeline ---------------------------------------------------
 
     def speak(self, text: str, voice: str | None = None, rate: int | None = None) -> None:
-        """Synthesize (or reuse cached audio) and play locally."""
+        """Synthesize (or reuse cached audio) and play locally.
+
+        On a cache miss with a streaming-capable request (and player),
+        playback starts on the first audio chunk; the accumulated bytes are
+        cached only after the stream completes, so failures never cache
+        partial audio.
+        """
         # _prepare validates user input (e.g. voice names) — its errors
         # surface unwrapped; only synthesis/playback failures get wrapped.
         prepared = self._prepare(text, voice, rate, format=None)
         try:
-            audio_data = self._get_or_synthesize(prepared)
-            self.update_progress(0.8, "Playing audio...")
-            self._play(audio_data, prepared.playback_suffix)
+            cache_key = self._cache_key(*prepared.cache_parts)
+            self.update_progress(0.0, "Checking cache...")
+            audio_data = self._cache.get(cache_key)
+            if audio_data is not None:
+                self.update_progress(0.5, "Using cached audio...")
+                self.update_progress(0.8, "Playing audio...")
+                self._play(audio_data, prepared.playback_suffix)
+            elif self._can_stream(prepared):
+                assert prepared.synthesize_stream is not None
+                self.update_progress(0.2, "Streaming speech...")
+                audio_data = playback.stream_audio_bytes(
+                    prepared.synthesize_stream(), prepared.playback_suffix
+                )
+                self._cache.put(cache_key, audio_data)
+            else:
+                self.update_progress(0.2, "Generating speech...")
+                audio_data = prepared.synthesize()
+                self._cache.put(cache_key, audio_data)
+                self.update_progress(0.8, "Playing audio...")
+                self._play(audio_data, prepared.playback_suffix)
             self.update_progress(1.0, "Complete")
         except Exception as e:
             raise RuntimeError(f"{self.display_name} TTS failed: {e}") from e
+
+    def _can_stream(self, prepared: PreparedSynthesis) -> bool:
+        """Streaming playback: request supports it, config allows it, player exists."""
+        return (
+            prepared.synthesize_stream is not None
+            and self.config.stream_enabled
+            and playback.find_stream_player() is not None
+        )
 
     def save_to_file(
         self,
@@ -132,7 +170,7 @@ class CloudTTSProvider(TTSProvider):
 
     def _play(self, audio_data: bytes, suffix: str) -> None:
         """Play synthesized bytes locally. Override for SDK-native playback."""
-        play_audio_bytes(audio_data, suffix)
+        playback.play_audio_bytes(audio_data, suffix)
 
     # -- shared helpers ----------------------------------------------------
 
