@@ -1,0 +1,60 @@
+# Sizzle reel pipeline: VHS terminal demos + gensay voices + ElevenLabs music,
+# composited with Remotion. Invoke from the repo root as `just promo::sizzle`
+# or from this directory as `just sizzle`.
+
+set shell := ["bash", "-uc"]
+
+# Default command - show available commands
+default:
+    @just --list
+
+# Record VHS terminal demos (tapes/*.tape) into remotion/public/clips/
+tapes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd {{source_directory()}}
+    mkdir -p remotion/public/clips
+    for tape in tapes/*.tape; do
+        echo "=== recording $tape ==="
+        vhs "$tape"
+    done
+    # Write clip durations so Remotion can fit each clip to its scene
+    {
+        echo "{"
+        first=1
+        for clip in remotion/public/clips/*.mp4; do
+            dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$clip")
+            name=$(basename "$clip")
+            [ $first -eq 1 ] || echo ","
+            first=0
+            printf '  "%s": %s' "$name" "$dur"
+        done
+        echo ""
+        echo "}"
+    } > remotion/src/clip-durations.json
+    cat remotion/src/clip-durations.json
+
+# Generate 30s background music via ElevenLabs Music API (paid plan; skips if file exists)
+music *ARGS:
+    cd {{source_directory()}} && uv run generate_music.py {{ARGS}}
+
+# Generate + loudness-normalize the provider roll-call voice lines via gensay itself (skips existing; --force regenerates)
+voices *ARGS:
+    cd {{source_directory()}} && uv run generate_voices.py {{ARGS}}
+
+# Render the 30s sizzle reel to out/gensay-sizzle.mp4 (includes music.mp3 if present)
+render:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd {{source_directory()}}/remotion
+    npm install --no-fund --no-audit
+    if [ -f public/music.mp3 ]; then props='{"music":true}'; else props='{"music":false}'; fi
+    npx remotion render Sizzle ../out/gensay-sizzle.mp4 --props="$props"
+
+# Full sizzle reel: record terminal demos + provider voices, then composite with Remotion
+sizzle: tapes voices render
+    @echo "✓ promo/out/gensay-sizzle.mp4"
+
+# Live-edit the sizzle reel composition in the browser
+studio:
+    cd {{source_directory()}}/remotion && npm install --no-fund --no-audit && npx remotion studio

@@ -1,0 +1,37 @@
+[
+  {
+    "id": "macos",
+    "file": "voices/macos.mp3",
+    "seconds": 2.037551
+  },
+  {
+    "id": "chatterbox",
+    "file": "voices/chatterbox.mp3",
+    "seconds": 2.272653
+  },
+  {
+    "id": "vibevoice",
+    "file": "voices/vibevoice.mp3",
+    "seconds": 2.037551
+  },
+  {
+    "id": "elevenlabs",
+    "file": "voices/elevenlabs.mp3",
+    "seconds": 1.097143
+  },
+  {
+    "id": "deepgram",
+    "file": "voices/deepgram.mp3",
+    "seconds": 2.115918
+  },
+  {
+    "id": "gemini",
+    "file": "voices/gemini.mp3",
+    "seconds": 1.959184
+  },
+  {
+    "id": "openai",
+    "file": "voices/openai.mp3",
+    "seconds": 1.227755
+  }
+]

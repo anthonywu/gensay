@@ -234,6 +234,9 @@ test-matrix:
 test-matrix-clean:
     rm -rf /tmp/gensay-tool-test-*
 
+# Sizzle reel pipeline (see promo/justfile): just promo::sizzle, promo::render, ...
+mod promo
+
 # Daemon unit + lifecycle tests (mock provider; no torch)
 test-daemon:
     uv run pytest tests/test_daemon_protocol.py tests/test_daemon_server.py tests/test_daemon_lifecycle.py -v
