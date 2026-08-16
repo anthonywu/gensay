@@ -207,6 +207,12 @@ demo:
 pre-commit: format lint test
     @echo "✓ All pre-commit checks passed"
 
+# Install git hooks from .githooks/ into .git/hooks/
+install-hooks:
+    cp .githooks/pre-commit .git/hooks/pre-commit
+    chmod +x .git/hooks/pre-commit
+    @echo "✓ Installed pre-commit hook"
+
 
 quick-test:
     uvx pytest tests/test_providers.py::test_mock_provider_speak -v
