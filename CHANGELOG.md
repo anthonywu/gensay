@@ -34,6 +34,21 @@ no longer need to touch your shell history.
 - **Per-provider documentation.** [USAGE.md](USAGE.md) has a hero section
   for each provider (OpenAI, Deepgram, ElevenLabs, Amazon Polly, macOS,
   mock): setup, credential storage, voice/rate/format flags, and defaults.
+- **`-m`/`--model` flag.** One-off model override per invocation, e.g.
+  `gensay -p openai -m gpt-4o-mini-tts "..."`; beats the stored
+  `<provider>.model` default. Providers without a model setting warn on
+  stderr and ignore the flag instead of silently accepting it.
+- **Model listings.** `gensay -p <provider> -v '?'` shows a Models section
+  for providers with selectable models (OpenAI, ElevenLabs), starring the
+  currently configured one. ElevenLabs models (`eleven_v3`,
+  `eleven_multilingual_v2`, `eleven_flash_v2_5`, ...) are listed offline.
+- **JSON voice listings.** `gensay -v '?' --json` prints a machine-readable
+  `{provider, voices, models}` payload. When stdout is piped
+  (`gensay -v '?' | jq .`), JSON is emitted automatically; a terminal still
+  gets the human-readable table.
+- **Provider availability in `gensay config show`.** Reports which
+  providers are ready based on detected env vars, keychain entries, and
+  installed dependencies (test-only providers like `mock` are omitted).
 
 ### Fixed
 
@@ -42,6 +57,14 @@ no longer need to touch your shell history.
   fallback can inspect the cause chain.
 - Cache keys stringify consistently across providers (existing cache
   entries remain valid).
+- Unknown-voice errors suggest the runnable CLI command
+  (`gensay -p <provider> -v '?'`) instead of the Python API
+  (`list_voices()`).
+- Deepgram rejects invalid model strings at construction (its models are
+  full voice strings like `flux-haley-en`) instead of failing later or
+  silently ignoring them.
+- Voice listings through the offline fallback show the real provider name
+  (e.g. `OpenAI`) instead of `NetworkFallback`.
 
 ### Internal
 
