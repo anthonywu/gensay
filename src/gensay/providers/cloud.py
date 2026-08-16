@@ -9,7 +9,10 @@ cache-key parts and a zero-arg synthesis closure.
 
 Cache-key compatibility: keys are ``sha256("provider|part|part|...")`` with
 parts stringified exactly like an f-string would, so providers migrating to
-this base keep their existing cache entries.
+this base keep their existing cache entries. (Deliberate exception:
+ElevenLabs now serializes explicit VoiceSettings fields instead of the SDK
+object's repr, invalidating its old entries once in exchange for keys that
+survive SDK upgrades.)
 """
 
 from __future__ import annotations

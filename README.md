@@ -98,11 +98,11 @@ just setup
 # Requires ffmpeg installed on system
 pip install 'gensay[audio-formats]'
 
-# Install all optional dependencies
+# Install all optional dependencies (large: includes the Chatterbox/PyTorch stack)
 pip install 'gensay[all]'
 ```
 
-**DInstallation Help:**
+**Installation Help:**
 
 - [PyAudio documentation](https://pypi.org/project/PyAudio/) - For PortAudio/PyAudio installation issues
 - [ElevenLabs Python library docs](https://elevenlabs.io/docs/agents-platform/libraries/python) - Official ElevenLabs Python documentation
@@ -496,10 +496,11 @@ gensay --provider openai -v nova "Hello from OpenAI"
 gensay --provider openai -o speech.mp3 "OpenAI TTS output"
 ```
 
-OpenAI offers two models via `config.extra['model']` (or `gensay config set openai.model tts-1-hd`):
+OpenAI offers several models — pick one per run with `-m` or persist with `gensay config set openai.model <id>` (see `gensay -p openai -v '?'` for the full list):
 
 - `tts-1` (default): Faster, lower latency
 - `tts-1-hd`: Higher quality audio
+- `gpt-4o-mini-tts`: Newest; supports steerable delivery/instructions
 
 ### Amazon Polly
 
@@ -524,9 +525,9 @@ This easy lets you [sign in through the AWS Command Line Interface](https://docs
 ```bash
 export AWS_DEFAULT_REGION=us-west-2
 # on your desktop with a browser
-aws login --region
+aws login --region us-west-2
 # in an env without a browser
-aws login --region --remote
+aws login --region us-west-2 --remote
 ```
 
 ```bash

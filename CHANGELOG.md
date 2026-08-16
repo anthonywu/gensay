@@ -56,7 +56,9 @@ no longer need to touch your shell history.
 - Amazon Polly errors are wrapped like other cloud providers, so offline
   fallback can inspect the cause chain.
 - Cache keys stringify consistently across providers (existing cache
-  entries remain valid).
+  entries remain valid, except ElevenLabs: its keys now use explicit
+  voice-settings fields instead of an SDK object repr, so its old entries
+  re-synthesize once but survive future SDK upgrades).
 - Unknown-voice errors suggest the runnable CLI command
   (`gensay -p <provider> -v '?'`) instead of the Python API
   (`list_voices()`).

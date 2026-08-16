@@ -10,18 +10,22 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  -f FILE, --input-file FILE
+  -f, --input-file FILE
                         Read text from file (use "-" for stdin)
-  -v VOICE, --voice VOICE
-                        Select voice by name (use "?" to list voices)
-  -r RATE, --rate RATE  Speech rate in words per minute
-  -o OUTPUT, --output-file OUTPUT
+  -v, --voice VOICE     Select voice by name (use "?" to list voices)
+  -r, --rate RATE       Speech rate in words per minute
+  -m, --model MODEL     Provider model id for this invocation, e.g. tts-1-hd
+                        or gpt-4o-mini-tts (overrides `gensay config set
+                        <provider>.model`; see --list-voices for choices)
+  -o, --output-file OUTPUT
                         Save audio to file instead of playing
   --format {aiff,wav,m4a,mp3,caf,flac,aac,ogg}
                         Audio format for output file
-  --provider {chatterbox,deepgram,elevenlabs,macos,mock,openai,polly}
+  -p, --provider {chatterbox,deepgram,elevenlabs,macos,mock,openai,polly}
                         TTS provider to use (default: macos)
   --list-voices         List all available voices for the selected provider
+  --json                Machine-readable JSON output (with --list-voices / -v
+                        '?')
   --no-cache            Disable caching
   --clear-cache         Clear cache and exit
   --cache-stats         Show cache statistics and exit
@@ -29,12 +33,18 @@ options:
   --no-progress         Disable progress bars
   --chunk-size CHUNK_SIZE
                         Text chunk size for processing (default: 500)
-  -i, --interactive, --repl
-                        Interactive REPL mode (provider initialized once)
-  --via-daemon          Require warm daemon
-  --no-daemon           Force cold in-process path
-  --auto-daemon         Auto-start daemon if missing (warm-eligible)
   --progress            Show progress meter
+  -i, --interactive, --repl
+                        Start interactive REPL mode (provider initialized
+                        once, reused for each prompt)
+  --via-daemon, --no-via-daemon
+                        Route request through gensay daemon (fail if daemon
+                        not running)
+  --no-daemon           Force in-process cold path even if daemon is running
+  --auto-daemon, --no-auto-daemon
+                        Auto-start daemon if missing (warm-eligible providers
+                        only)
+  --version             show program's version number and exit
 ```
 
 ## Daemon
