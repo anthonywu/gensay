@@ -1157,13 +1157,15 @@ def main():  # noqa: C901
         parser.print_usage()
         sys.exit(1)
 
-    # Prefer daemon for speak/save/list_voices when appropriate
-    # (JSON voice listings go direct: the daemon path has no models data)
+    # Prefer daemon for speak/save/list_voices when appropriate.
+    # Direct exceptions: JSON listings (daemon has no models data) and -m/--model
+    # (the daemon's warm provider is fixed at start; it can't take a per-run model).
     json_listing = args.list_voices and args.as_json
     if (
         not args.repl
         and not args.cache_ahead
         and not json_listing
+        and not args.model
         and _try_daemon_speak_or_save(args, text)
     ):
         return

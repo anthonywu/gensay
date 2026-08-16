@@ -483,6 +483,42 @@ def test_model_flag_overrides_stored_model(
     assert captured["config"].extra["model"] == "tts-1"
 
 
+def test_model_flag_bypasses_daemon(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring
+):
+    """-m/--model routes direct: the daemon's warm provider can't take a per-run model."""
+    import sys
+
+    from gensay import main as main_mod
+
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    def daemon_must_not_run(args, text):
+        raise AssertionError("daemon path must be skipped when -m/--model is set")
+
+    monkeypatch.setattr(main_mod, "_try_daemon_speak_or_save", daemon_must_not_run)
+
+    captured: dict = {}
+
+    class StubProvider:
+        def __init__(self, config):
+            self.config = config
+            captured["config"] = config
+
+        def speak(self, text, voice=None, rate=None):
+            captured["text"] = text
+
+    stub_providers = dict(main_mod.get_providers())
+    stub_providers["openai"] = StubProvider
+    monkeypatch.setattr(main_mod, "get_providers", lambda: stub_providers)
+    monkeypatch.setattr(sys, "argv", ["gensay", "-p", "openai", "-m", "tts-1-hd", "hello"])
+
+    main_mod.main()
+
+    assert captured["config"].extra["model"] == "tts-1-hd"
+    assert captured["text"] == "hello"
+
+
 def test_piped_voice_listing_defaults_to_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring, capsys
 ):
