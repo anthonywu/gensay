@@ -3,7 +3,7 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/gensay.svg)](https://pypi.org/project/gensay)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/gensay.svg)](https://pypi.org/project/gensay)
 
-A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr/bin/say` command interface while supporting multiple TTS backends including Chatterbox (local AI), OpenAI, ElevenLabs, Deepgram, and Amazon Polly.
+A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr/bin/say` command interface while supporting multiple TTS backends including Chatterbox (local AI), OpenAI, ElevenLabs, Deepgram, Gemini, and Amazon Polly.
 
 ## Features
 
@@ -13,6 +13,7 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
   - [Chatterbox](https://github.com/resemble-ai/chatterbox) (local AI TTS, default on other platforms)
   - [ElevenLabs](https://elevenlabs.io/docs/api-reference/text-to-speech/convert) (cloud API)
   - [Deepgram](https://developers.deepgram.com/docs/flux-tts/overview) (cloud API; Flux TTS, Aura-2, and Aura models)
+  - [Gemini TTS](https://ai.google.dev/gemini-api/docs/speech-generation) (cloud API; prompt-steerable native speech generation, multi-speaker dialogue)
   - [OpenAI TTS](https://platform.openai.com/docs/guides/text-to-speech) (cloud API)
   - [Amazon Polly](https://aws.amazon.com/polly/) (cloud API)
   - Mock provider for testing
@@ -23,7 +24,7 @@ A multi-provider text-to-speech (TTS) tool that implements the Apple macOS `/usr
 - **Background Pre-caching**: Queue and cache audio chunks in the background (Chatterbox only)
 - **Interactive REPL Mode**: Start an interactive session with provider initialized once for repeated use
 - **Warm Inference Daemon**: Keep local AI models loaded in a background process; ad-hoc `gensay` calls reuse the warm model via a Unix socket
-- **Offline Resilience**: Cloud providers (ElevenLabs, Deepgram, OpenAI, Polly) automatically fall back to macOS `say` when the network is unreachable
+- **Offline Resilience**: Cloud providers (ElevenLabs, Deepgram, Gemini, OpenAI, Polly) automatically fall back to macOS `say` when the network is unreachable
 
 ## Table of Contents
 
@@ -176,7 +177,7 @@ gensay -v '?'
 gensay --list-voices
 ```
 
-Want a copy-pasteable example for a specific backend? See the [hero examples for every provider](USAGE.md#hero-examples--every-provider) in USAGE.md — setup + canonical commands for macOS, Chatterbox, ElevenLabs, Deepgram, OpenAI, Amazon Polly, and Mock.
+Want a copy-pasteable example for a specific backend? See the [hero examples for every provider](USAGE.md#hero-examples--every-provider) in USAGE.md — setup + canonical commands for macOS, Chatterbox, ElevenLabs, Deepgram, Gemini, OpenAI, Amazon Polly, and Mock.
 
 Third-party packages can add providers via the `gensay.providers` entry-point group — see [Provider plugins](USAGE.md#provider-plugins-third-party) in USAGE.md.
 

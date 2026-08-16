@@ -30,6 +30,7 @@ class TestSpecsTable:
             "chatterbox",
             "deepgram",
             "elevenlabs",
+            "gemini",
             "macos",
             "mock",
             "openai",
@@ -47,6 +48,7 @@ class TestSpecsTable:
         assert names_where(lambda s: s.kind == "cloud") == {
             "deepgram",
             "elevenlabs",
+            "gemini",
             "openai",
             "polly",
         }
@@ -105,6 +107,9 @@ class TestConfigKeyDerivation:
         assert keys["openai.model"] is str
         assert keys["deepgram.api_key"] is str
         assert keys["elevenlabs.model"] is str
+        assert keys["gemini.api_key"] is str
+        assert keys["gemini.model"] is str
+        assert keys["gemini.prompt"] is str
         # Polly has no api_key (AWS credential chain) but exposes tuning keys
         assert keys["polly.engine"] is str
         assert keys["polly.aws_profile"] is str
