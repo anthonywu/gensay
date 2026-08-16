@@ -483,9 +483,7 @@ def test_model_flag_overrides_stored_model(
     assert captured["config"].extra["model"] == "tts-1"
 
 
-def test_model_flag_bypasses_daemon(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring
-):
+def test_model_flag_bypasses_daemon(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring):
     """-m/--model routes direct: the daemon's warm provider can't take a per-run model."""
     import sys
 

@@ -98,6 +98,29 @@ gensay config unset KEY
 `<provider>.api_key` keys are stored in the OS keychain, not the TOML file.
 Omit the value to get a hidden password prompt (keeps secrets out of shell history).
 
+## Shell completions
+
+`gensay completions bash|zsh|fish` prints a completion script generated from
+the live CLI: flags, `daemon`/`config` subcommands, provider names, formats,
+and config keys are always in sync with your installed version (plugins
+included). Voice names for `-v` are completed dynamically per the `-p`
+provider already typed on the line.
+
+```bash
+# bash
+gensay completions bash > ~/.local/share/bash-completion/completions/gensay
+
+# zsh (any directory on $fpath; then restart the shell or run compinit)
+mkdir -p ~/.zfunc && gensay completions zsh > ~/.zfunc/_gensay
+# in ~/.zshrc, before compinit: fpath=(~/.zfunc $fpath)
+
+# fish
+gensay completions fish > ~/.config/fish/completions/gensay.fish
+```
+
+Re-run the command after upgrading gensay or installing provider plugins to
+pick up new flags and providers.
+
 ## Cloud provider credentials
 
 Env vars take precedence; see README for full setup.

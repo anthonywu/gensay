@@ -98,7 +98,8 @@ def create_parser(user_cfg=None) -> argparse.ArgumentParser:
   gensay daemon start -p chatterbox
   gensay daemon status
   gensay daemon stop
-  gensay config path | show | init""",
+  gensay config path | show | init
+  gensay completions bash | zsh | fish  # print shell completion script""",
     )
 
     # Text input options
@@ -237,6 +238,11 @@ def create_parser(user_cfg=None) -> argparse.ArgumentParser:
         const="",
         metavar="IGNORED",
         help=argparse.SUPPRESS,  # removed; kept only to print migration error
+    )
+    parser.add_argument(
+        "--print-voice-names",
+        action="store_true",
+        help=argparse.SUPPRESS,  # shell-completion helper: bare voice names, one per line
     )
 
     # Version
@@ -485,7 +491,9 @@ def _print_voices_text(provider: TTSProvider, provider_name: str) -> None:
 def list_voices(provider: TTSProvider, as_json: bool = False) -> None:
     """List available voices."""
     try:
-        provider_name = getattr(provider, "display_name", None) or provider.__class__.__name__.replace("Provider", "")
+        provider_name = getattr(
+            provider, "display_name", None
+        ) or provider.__class__.__name__.replace("Provider", "")
 
         if as_json:
             import json
@@ -505,6 +513,29 @@ def list_voices(provider: TTSProvider, as_json: bool = False) -> None:
     except Exception as e:
         print(f"Error listing voices: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def _print_voice_names(provider_name: str) -> None:
+    """Shell-completion helper: bare voice names, one per line.
+
+    Loads only the requested provider and swallows all errors/noise —
+    a failed lookup at Tab time must produce nothing, not a traceback.
+    """
+    import io
+
+    try:
+        from .providers.registry import load_provider_class
+
+        provider_class = load_provider_class(provider_name)
+        with contextlib.redirect_stderr(io.StringIO()):
+            provider = provider_class(TTSConfig(cache_enabled=False))
+            voices = provider.list_voices()
+        for voice in voices:
+            name = voice.get("name") or voice.get("id")
+            if name:
+                print(name)
+    except Exception:
+        pass
 
 
 def handle_cache_operations(args) -> bool:
@@ -1120,6 +1151,11 @@ def main():  # noqa: C901
     if len(sys.argv) > 1 and sys.argv[1] == "config":
         config_main(sys.argv[2:])
         return
+    if len(sys.argv) > 1 and sys.argv[1] == "completions":
+        from .completions import completions_main
+
+        completions_main(sys.argv[2:])
+        return
 
     from dotenv import load_dotenv
 
@@ -1130,6 +1166,11 @@ def main():  # noqa: C901
     user_cfg = resolve_user_config()
     parser = create_parser(user_cfg)
     args = parser.parse_args()
+
+    # Shell-completion helper: print bare voice names and exit quietly
+    if args.print_voice_names:
+        _print_voice_names(args.provider)
+        return
 
     # A config-file voice default only applies to the provider it was set with
     from .user_config import load_user_config
