@@ -121,6 +121,11 @@ def create_parser(user_cfg=None) -> argparse.ArgumentParser:
         default=d.get("rate"),
         help="Speech rate in words per minute",
     )
+    parser.add_argument(
+        "--model",
+        help="Provider model id for this invocation, e.g. tts-1-hd or gpt-4o-mini-tts "
+        "(overrides `gensay config set <provider>.model`; see --list-voices for choices)",
+    )
 
     # Output options
     parser.add_argument(
@@ -1158,6 +1163,10 @@ def main():  # noqa: C901
                     config.extra[sub] = secret
         elif (val := get_config_value(cfg_key)) is not None:
             config.extra[sub] = val
+
+    # --model beats the stored <provider>.model default for this invocation
+    if args.model:
+        config.extra["model"] = args.model
 
     if args.provider == "chatterbox":
         # TorchCodec needs FFmpeg dylibs at process start; self-heal via one re-exec

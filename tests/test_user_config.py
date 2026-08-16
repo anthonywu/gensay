@@ -443,3 +443,41 @@ class TestConfigShowProviderAvailability:
         assert providers["macos"]["ready"] is True
         assert providers["openai"]["ready"] is False
         assert {"name", "kind", "ready", "detail"} <= set(providers["openai"])
+
+
+def test_model_flag_overrides_stored_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_keyring
+):
+    """--model beats `gensay config set <provider>.model` for one invocation."""
+    monkeypatch.setenv("GENSAY_CONFIG", str(tmp_path / "config.toml"))
+
+    import sys
+
+    from gensay import main as main_mod
+    from gensay.user_config import set_config_value
+
+    set_config_value("openai.model", "tts-1")
+
+    captured: dict = {}
+
+    class StubProvider:
+        def __init__(self, config):
+            self.config = config
+            captured["config"] = config
+
+        def speak(self, text, voice=None, rate=None):
+            captured["text"] = text
+
+    stub_providers = dict(main_mod.get_providers())
+    stub_providers["openai"] = StubProvider
+    monkeypatch.setattr(main_mod, "get_providers", lambda: stub_providers)
+    monkeypatch.setattr(sys, "argv", ["gensay", "-p", "openai", "--model", "tts-1-hd", "hello"])
+
+    main_mod.main()
+
+    assert captured["config"].extra["model"] == "tts-1-hd"
+
+    # Without the flag, the stored config value applies
+    monkeypatch.setattr(sys, "argv", ["gensay", "-p", "openai", "hello"])
+    main_mod.main()
+    assert captured["config"].extra["model"] == "tts-1"
