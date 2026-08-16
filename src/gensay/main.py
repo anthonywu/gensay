@@ -418,10 +418,25 @@ def get_text_input(args) -> str:
         return ""
 
 
+def _print_models(provider: TTSProvider) -> None:
+    """Print the provider's selectable models, if it declares any."""
+    models = provider.list_models()
+    if not models:
+        return
+    namespace = getattr(provider, "cache_namespace", None)
+    hint = f" (set with `gensay config set {namespace}.model <id>`)" if namespace else ""
+    print(f"\nModels{hint}:\n")
+    for model in models:
+        marker = "*" if model.get("current") else " "
+        desc = model.get("description", "")
+        suffix = f" # {desc}" if desc else ""
+        print(f"{marker} {model['id']:<28}{suffix}")
+
+
 def list_voices(provider: TTSProvider) -> None:
     """List available voices."""
     try:
-        provider_name = provider.__class__.__name__.replace("Provider", "")
+        provider_name = getattr(provider, "display_name", None) or provider.__class__.__name__.replace("Provider", "")
         print(f"\nVoices for provider: {provider_name}\n")
 
         voices = provider.list_voices()
@@ -449,6 +464,8 @@ def list_voices(provider: TTSProvider) -> None:
                 print(f"{display_name:<20} {lang:<10} # {desc}")
             else:
                 print(f"{display_name:<20} {lang:<10}")
+
+        _print_models(provider)
     except NotImplementedError:
         print(f"Voice listing not implemented for {provider.__class__.__name__}", file=sys.stderr)
         sys.exit(1)

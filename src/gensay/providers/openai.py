@@ -32,6 +32,18 @@ class OpenAIProvider(CloudTTSProvider):
         {"id": "shimmer", "name": "Shimmer", "description": "Warm, engaging"},
     ]
 
+    # OpenAI TTS models (as offered in the platform UI; passed through as-is,
+    # so newer/dated snapshots not listed here still work via openai.model)
+    MODELS = [
+        {"id": "gpt-4o-mini-tts", "description": "Newest; steerable with instructions"},
+        {"id": "gpt-4o-mini-tts-2025-03-20", "description": "Dated snapshot"},
+        {"id": "gpt-4o-mini-tts-2025-12-15", "description": "Dated snapshot"},
+        {"id": "tts-1", "description": "Fast, low latency (default)"},
+        {"id": "tts-1-1106", "description": "Dated snapshot"},
+        {"id": "tts-1-hd", "description": "Higher quality"},
+        {"id": "tts-1-hd-1106", "description": "Dated snapshot"},
+    ]
+
     # Map our formats to OpenAI supported formats
     FORMAT_MAP = {
         AudioFormat.MP3: "mp3",
@@ -93,6 +105,10 @@ class OpenAIProvider(CloudTTSProvider):
             }
             for v in self.VOICES
         ]
+
+    def list_models(self) -> list[dict[str, Any]]:
+        """List known OpenAI TTS models, marking the one this instance uses."""
+        return [{**m, "current": m["id"] == self.model} for m in self.MODELS]
 
     def get_supported_formats(self) -> list[AudioFormat]:
         """Get supported audio formats.

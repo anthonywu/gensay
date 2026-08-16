@@ -90,6 +90,15 @@ class TTSProvider(ABC):
         """Get list of supported audio formats."""
         pass
 
+    def list_models(self) -> list[dict[str, Any]]:
+        """List selectable models, if the provider has a model concept.
+
+        Returns list of dicts with at least 'id'; optional 'description' and
+        'current' (bool, the model this instance would use). Empty by default;
+        shown alongside ``--list-voices`` output when non-empty.
+        """
+        return []
+
     def is_format_supported(self, format: AudioFormat) -> bool:
         """Check if format is supported."""
         return format in self.get_supported_formats()
