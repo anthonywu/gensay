@@ -19,9 +19,10 @@ Type "cd /tmp && clear"
 Enter
 Show
 
-Type "gensay -p macos 'It is 2026. Your terminal can talk.'"
+Type "gensay -p elevenlabs 'It is 2026. Your terminal have multitudes of text to speech options.'"
 Sleep 500ms
 Enter
+
 # Wait for the prompt to return (speech blocks) before typing the next command
 Wait
 Sleep 1s

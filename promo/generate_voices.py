@@ -33,12 +33,12 @@ OUT_JSON = PROMO / "remotion" / "src" / "voice-durations.json"
 # Format note: the macos provider currently writes broken mp3 files
 # (16-byte header only), so it gets m4a; everything else does mp3 natively.
 LINES: list[tuple[str, str, str]] = [
-    ("macos", "Mac O S say, built in.", "m4a"),
-    ("chatterbox", "Chatterbox, running locally.", "mp3"),
+    ("macos", "Classic Mac O S say, built in.", "m4a"),
     ("vibevoice", "VibeVoice, on device.", "mp3"),
+    ("chatterbox", "Chatterbox, running locally.", "mp3"),
     ("elevenlabs", "ElevenLabs here.", "mp3"),
     ("deepgram", "Deepgram, ready.", "mp3"),
-    ("gemini", "This is Gemini.", "mp3"),
+    ("gemini", "This is Google Gemini.", "mp3"),
     ("openai", "OpenAI, checking in.", "mp3"),
     ("polly", "Polly, from Amazon.", "mp3"),
 ]
